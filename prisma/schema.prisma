@@ -320,6 +320,36 @@ model Partner {
   updatedAt DateTime @updatedAt
 }
 
+// ---------- Company: equity & legal (ADMIN-only pages) ----------
+
+/// One unit issuance/transfer on the DNA Spirits LLC cap table.
+model CapTableEntry {
+  id           String    @id @default(cuid())
+  member       String
+  unitType     String    @default("ECONOMIC") // VOTING | ECONOMIC | PREFERRED
+  units        Float
+  dateAcquired DateTime?
+  round        String    @default("") // Founder | Seed | Bridge | Secondary
+  capitalCents Int       @default(0) // 0 for founder units / secondaries
+  notes        String    @default("")
+}
+
+/// Index of corporate documents, IP and compliance deadlines. The executed
+/// files live with counsel / in drive storage — this is the register that
+/// says what exists, where it is, and when something is due.
+model LegalRecord {
+  id           String    @id @default(cuid())
+  type         String    @default("DOCUMENT") // DOCUMENT | TRADEMARK | PERMIT | DEADLINE
+  title        String
+  reference    String    @default("") // USPTO serial/reg no., permit no., file no.
+  jurisdiction String    @default("")
+  executed     DateTime? // signed / filed / registered
+  dueDate      DateTime? // renewal or filing deadline, if any
+  link         String    @default("")
+  status       String    @default("ACTIVE") // ACTIVE | DONE | EXPIRED
+  notes        String    @default("")
+}
+
 // ---------- Finance ----------
 
 model Expense {

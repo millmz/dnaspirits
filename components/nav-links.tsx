@@ -79,12 +79,21 @@ export function NavLinks({ role }: { role: string }) {
         </div>
       ))}
       {role === "ADMIN" && (
-        <div className="pb-1">
-          <div className="brand-heading px-2 pb-1 pt-3 text-[10px] font-medium tracking-widest text-blanco">
-            Admin
+        <>
+          <div className="pb-1">
+            <div className="brand-heading px-2 pb-1 pt-3 text-[10px] font-medium tracking-widest text-blanco">
+              Company
+            </div>
+            {link({ href: "/captable", label: "Cap Table" })}
+            {link({ href: "/legal", label: "Legal & IP" })}
           </div>
-          {link({ href: "/settings", label: "Settings" })}
-        </div>
+          <div className="pb-1">
+            <div className="brand-heading px-2 pb-1 pt-3 text-[10px] font-medium tracking-widest text-blanco">
+              Admin
+            </div>
+            {link({ href: "/settings", label: "Settings" })}
+          </div>
+        </>
       )}
     </>
   );
