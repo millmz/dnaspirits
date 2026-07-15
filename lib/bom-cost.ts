@@ -3,13 +3,18 @@ import { db } from "./db";
 type BomLine = { qty: number; per: string; component: { unitCostCents: number } };
 
 /**
- * COGS per case from the bill of materials: per-bottle components × bottles
- * per case, plus per-case components. This is the single source of truth for
- * product cost whenever a BOM exists — FOB pricing lives separately on the
- * product and never moves when costs change.
+ * COGS per case: per-bottle components × bottles per case, plus per-case
+ * components (e.g. shipper boxes), plus bottling labor & overhead — a cost
+ * that belongs in COGS but is not a tracked dry good. This is the single
+ * source of truth for product cost whenever a BOM exists — FOB pricing lives
+ * separately on the product and never moves when costs change.
  */
-export function caseCostFromBom(bomItems: BomLine[], bottlesPerCase: number): number {
-  let perBottle = 0;
+export function caseCostFromBom(
+  bomItems: BomLine[],
+  bottlesPerCase: number,
+  laborPerBottleCents = 0
+): number {
+  let perBottle = laborPerBottleCents;
   let perCase = 0;
   for (const b of bomItems) {
     if (b.per === "CASE") perCase += b.qty * b.component.unitCostCents;
@@ -31,7 +36,7 @@ export async function recalcProductCosts(productIds?: string[]) {
   });
   for (const p of products) {
     if (p.bomItems.length === 0) continue;
-    const cents = caseCostFromBom(p.bomItems, p.bottlesPerCase);
+    const cents = caseCostFromBom(p.bomItems, p.bottlesPerCase, p.laborPerBottleCents);
     if (cents !== p.caseCostCents) {
       await db.product.update({ where: { id: p.id }, data: { caseCostCents: cents } });
     }

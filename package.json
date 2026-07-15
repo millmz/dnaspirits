@@ -10,7 +10,7 @@
     "db:seed": "node prisma/seed.mjs",
     "setup": "prisma migrate deploy && node prisma/seed.mjs",
     "postinstall": "prisma generate",
-    "deploy:start": "node scripts/repair-db.mjs && prisma migrate deploy && node scripts/remove-placeholder-seed.mjs && node prisma/seed.mjs && node scripts/setup-real-data.mjs && next start",
+    "deploy:start": "node scripts/repair-db.mjs && prisma migrate deploy && node scripts/remove-placeholder-seed.mjs && node prisma/seed.mjs && node scripts/setup-real-data.mjs && node scripts/fix-dry-goods-structure.mjs && next start",
     "db:migrate": "prisma migrate deploy"
   },
   "dependencies": {

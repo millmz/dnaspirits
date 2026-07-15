@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toCents, toFloat, toInt, toDate } from "@/lib/format";
+import { recalcProductsUsingComponents } from "@/lib/bom-cost";
 
 export async function createComponent(formData: FormData) {
   await requireOps();
@@ -21,6 +22,24 @@ export async function createComponent(formData: FormData) {
     },
   });
   revalidatePath("/components");
+}
+
+/** Edit a component's cost/reorder settings; cost changes flow into product COGS via the BOMs. */
+export async function updateComponent(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  await db.component.update({
+    where: { id },
+    data: {
+      unitCostCents: toCents(formData.get("unitCost") as string),
+      reorderPoint: toFloat(formData.get("reorderPoint") as string),
+      leadTimeDays: toInt(formData.get("leadTimeDays") as string, 30),
+    },
+  });
+  await recalcProductsUsingComponents([id]);
+  revalidatePath("/components");
+  revalidatePath("/products");
+  revalidatePath("/");
 }
 
 export async function adjustComponent(formData: FormData) {

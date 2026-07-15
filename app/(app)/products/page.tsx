@@ -62,7 +62,8 @@ export default async function ProductsPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         {products.filter((p) => p.active).map((p) => {
-          const caseCost = caseCostFromBom(p.bomItems, p.bottlesPerCase);
+          const componentsCase = caseCostFromBom(p.bomItems, p.bottlesPerCase);
+          const caseCost = caseCostFromBom(p.bomItems, p.bottlesPerCase, p.laborPerBottleCents);
           return (
             <Card key={p.id} title={`BOM — ${p.name}`}>
               {p.bomItems.length === 0 ? (
@@ -93,11 +94,16 @@ export default async function ProductsPage() {
                       </tr>
                     ))}
                   </Table>
-                  <div className="mt-2 flex justify-between border-t border-ink/10 pt-2 text-sm">
-                    <span className="brand-heading text-xs text-slate">COGS from BOM</span>
-                    <span className="font-medium">
-                      {money(Math.round(caseCost / p.bottlesPerCase))} /unit · {money(caseCost)} /case
-                    </span>
+                  <div className="mt-2 space-y-1 border-t border-ink/10 pt-2 text-sm">
+                    <div className="flex justify-between text-xs text-slate">
+                      <span>Components {money(Math.round(componentsCase / p.bottlesPerCase))}/btl · labor &amp; overhead {money(p.laborPerBottleCents)}/btl</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="brand-heading text-xs text-slate">COGS (BOM + labor)</span>
+                      <span className="font-medium">
+                        {money(Math.round(caseCost / p.bottlesPerCase))} /unit · {money(caseCost)} /case
+                      </span>
+                    </div>
                   </div>
                 </>
               )}
@@ -155,7 +161,10 @@ export default async function ProductsPage() {
                 <input name="casesPerPallet" type="number" defaultValue={140} className={inputCls} />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Labor & overhead /bottle ($)">
+                <input name="laborPerBottle" placeholder="1.00" className={inputCls} />
+              </Field>
               <Field label="Case COGS ($ — auto once a BOM exists)">
                 <input name="caseCost" placeholder="72.12" className={inputCls} />
               </Field>
@@ -182,12 +191,19 @@ export default async function ProductsPage() {
                   <Field label="Name" className="min-w-48 flex-1">
                     <input name="name" defaultValue={p.name} className={inputCls} />
                   </Field>
+                  <Field label="Labor/btl ($)" className="w-24">
+                    <input
+                      name="laborPerBottle"
+                      defaultValue={(p.laborPerBottleCents / 100).toFixed(2)}
+                      className={inputCls}
+                    />
+                  </Field>
                   <Field label={hasBom ? "COGS (auto)" : "COGS ($)"} className="w-24">
                     <input
                       name="caseCost"
                       defaultValue={(p.caseCostCents / 100).toFixed(2)}
                       disabled={hasBom}
-                      title={hasBom ? "Derived from the BOM — edit component costs instead" : undefined}
+                      title={hasBom ? "Derived from the BOM + labor — edit component costs or labor instead" : undefined}
                       className={`${inputCls} ${hasBom ? "opacity-50" : ""}`}
                     />
                   </Field>

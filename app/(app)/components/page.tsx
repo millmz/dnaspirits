@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { getComponentStock } from "@/lib/inventory";
 import { money, num } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
-import { createComponent, adjustComponent, createSupplier } from "./actions";
+import { createComponent, updateComponent, adjustComponent, createSupplier } from "./actions";
 
 const CATEGORIES = [
   ["GLASS", "Glass"],
@@ -59,34 +59,72 @@ export default async function ComponentsPage() {
           <EmptyState>No components yet — add your dry goods below.</EmptyState>
         ) : (
           <Table
-            headers={["Component", "Category", "Supplier", "Unit cost", "Lead time", "On hand", "Reorder at", "Status"]}
-            align={["left", "left", "left", "right", "right", "right", "right", "left"]}
+            headers={["Component", "Category", "Supplier", "Unit cost", "Lead time", "On hand", "Reorder at", "Status", ""]}
+            align={["left", "left", "left", "right", "right", "right", "right", "left", "left"]}
           >
             {components.map((c) => {
               const onHand = stock.get(c.id) ?? 0;
               const isLow = c.reorderPoint > 0 && onHand < c.reorderPoint;
+              const formId = `comp-${c.id}`;
               return (
                 <tr key={c.id}>
-                  <Td className="font-medium">{c.name}</Td>
+                  <Td className="font-medium">
+                    <form id={formId} action={updateComponent}>
+                      <input type="hidden" name="id" value={c.id} />
+                    </form>
+                    {c.name}
+                  </Td>
                   <Td><Badge>{catLabel(c.category)}</Badge></Td>
                   <Td>{c.supplier?.name ?? "—"}</Td>
-                  <Td right>{money(c.unitCostCents)}</Td>
-                  <Td right>{c.leadTimeDays}d</Td>
+                  <Td right>
+                    <input
+                      name="unitCost"
+                      form={formId}
+                      defaultValue={(c.unitCostCents / 100).toFixed(2)}
+                      className="w-20 rounded border border-ink/15 bg-white px-1.5 py-0.5 text-right text-sm"
+                    />
+                  </Td>
+                  <Td right>
+                    <input
+                      name="leadTimeDays"
+                      form={formId}
+                      type="number"
+                      defaultValue={c.leadTimeDays}
+                      className="w-16 rounded border border-ink/15 bg-white px-1.5 py-0.5 text-right text-sm"
+                    />
+                  </Td>
                   <Td right className="font-medium">{num(Math.round(onHand * 100) / 100)} {c.unit}</Td>
-                  <Td right>{c.reorderPoint > 0 ? num(c.reorderPoint) : "—"}</Td>
+                  <Td right>
+                    <input
+                      name="reorderPoint"
+                      form={formId}
+                      defaultValue={c.reorderPoint > 0 ? c.reorderPoint : ""}
+                      placeholder="—"
+                      className="w-20 rounded border border-ink/15 bg-white px-1.5 py-0.5 text-right text-sm"
+                    />
+                  </Td>
                   <Td>{isLow ? <Badge tone="red">Reorder</Badge> : <Badge tone="green">OK</Badge>}</Td>
+                  <Td>
+                    <button form={formId} className="text-xs font-medium text-agave-deep hover:underline">
+                      Save
+                    </button>
+                  </Td>
                 </tr>
               );
             })}
           </Table>
         )}
+        <p className="mt-3 text-xs text-slate/70">
+          Unit cost, lead time and reorder point are editable in place — cost changes update product COGS
+          automatically through the BOMs. Costs also refresh when a purchase order is received.
+        </p>
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Card title="Add component">
           <form action={createComponent} className="space-y-3">
             <Field label="Name">
-              <input name="name" required placeholder="Glass Bottle 750ml" className={inputCls} />
+              <input name="name" required placeholder="Shipper Box — Añejo 700ml" className={inputCls} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Category">

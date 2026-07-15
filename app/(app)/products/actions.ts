@@ -17,6 +17,7 @@ export async function createProduct(formData: FormData) {
       abv: toFloat(formData.get("abv") as string, 40),
       bottlesPerCase: toInt(formData.get("bottlesPerCase") as string, 6),
       casesPerPallet: toInt(formData.get("casesPerPallet") as string, 140),
+      laborPerBottleCents: toCents(formData.get("laborPerBottle") as string),
       caseCostCents: toCents(formData.get("caseCost") as string),
       exWorksCents: toCents(formData.get("exWorks") as string),
     },
@@ -33,11 +34,13 @@ export async function updateProduct(formData: FormData) {
     where: { id },
     data: {
       name: String(formData.get("name") ?? "").trim(),
+      laborPerBottleCents: toCents(formData.get("laborPerBottle") as string),
       ...(hasBom ? {} : { caseCostCents: toCents(formData.get("caseCost") as string) }),
       exWorksCents: toCents(formData.get("exWorks") as string),
       active: formData.get("active") === "on",
     },
   });
+  if (hasBom) await recalcProductCosts([id]);
   revalidatePath("/products");
 }
 
