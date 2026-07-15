@@ -10,7 +10,7 @@
     "db:seed": "node prisma/seed.mjs",
     "setup": "prisma migrate deploy && node prisma/seed.mjs",
     "postinstall": "prisma generate",
-    "deploy:start": "prisma migrate deploy && node prisma/seed.mjs && next start",
+    "deploy:start": "node scripts/repair-db.mjs && prisma migrate deploy && node prisma/seed.mjs && next start",
     "db:migrate": "prisma migrate deploy"
   },
   "dependencies": {
