@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Team ----------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("MEMBER") // ADMIN | MEMBER
+  createdAt    DateTime @default(now())
+}
+
+// ---------- Supply chain ----------
+
+model Product {
+  id             String  @id @default(cuid())
+  sku            String  @unique
+  name           String
+  sizeMl         Int     @default(750)
+  abv            Float   @default(40)
+  bottlesPerCase Int     @default(6)
+  caseCostCents  Int     @default(0) // fully-loaded production cost per case (COGS)
+  casePriceCents Int     @default(0) // default wholesale price per case to distributors
+  active         Boolean @default(true)
+
+  productionRuns ProductionRun[]
+  movements      InventoryMovement[]
+  shipmentLines  ShipmentLine[]
+  depletions     Depletion[]
+}
+
+model Warehouse {
+  id       String @id @default(cuid())
+  name     String
+  location String @default("")
+
+  movements InventoryMovement[]
+  runs      ProductionRun[]
+  shipments Shipment[]
+}
+
+model ProductionRun {
+  id              String    @id @default(cuid())
+  lotCode         String    @unique
+  productId       String
+  product         Product   @relation(fields: [productId], references: [id])
+  warehouseId     String
+  warehouse       Warehouse @relation(fields: [warehouseId], references: [id])
+  status          String    @default("PLANNED") // PLANNED | IN_PROGRESS | COMPLETED
+  startDate       DateTime
+  bottledDate     DateTime?
+  bottlesPlanned  Int
+  bottlesProduced Int       @default(0)
+  agaveSource     String    @default("")
+  distillery      String    @default("")
+  totalCostCents  Int       @default(0)
+  notes           String    @default("")
+
+  movements InventoryMovement[]
+}
+
+model InventoryMovement {
+  id              String         @id @default(cuid())
+  date            DateTime       @default(now())
+  productId       String
+  product         Product        @relation(fields: [productId], references: [id])
+  warehouseId     String
+  warehouse       Warehouse      @relation(fields: [warehouseId], references: [id])
+  type            String // PRODUCTION | SHIPMENT | TRANSFER_IN | TRANSFER_OUT | ADJUSTMENT | SAMPLES
+  bottles         Int // signed: positive adds stock, negative removes
+  productionRunId String?
+  productionRun   ProductionRun? @relation(fields: [productionRunId], references: [id])
+  shipmentId      String?
+  shipment        Shipment?      @relation(fields: [shipmentId], references: [id])
+  notes           String         @default("")
+}
+
+// ---------- Distribution ----------
+
+model Distributor {
+  id          String @id @default(cuid())
+  name        String
+  market      String @default("") // state / region
+  contactName String @default("")
+  email       String @default("")
+  phone       String @default("")
+  notes       String @default("")
+
+  shipments  Shipment[]
+  depletions Depletion[]
+}
+
+model Shipment {
+  id            String      @id @default(cuid())
+  distributorId String
+  distributor   Distributor @relation(fields: [distributorId], references: [id])
+  warehouseId   String
+  warehouse     Warehouse   @relation(fields: [warehouseId], references: [id])
+  date          DateTime
+  status        String      @default("DRAFT") // DRAFT | SHIPPED
+  invoiceNumber String      @default("")
+  invoiceStatus String      @default("UNPAID") // UNPAID | PAID
+  paidDate      DateTime?
+  notes         String      @default("")
+
+  lines     ShipmentLine[]
+  movements InventoryMovement[]
+}
+
+model ShipmentLine {
+  id                String   @id @default(cuid())
+  shipmentId        String
+  shipment          Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id])
+  cases             Int
+  pricePerCaseCents Int
+}
+
+model Depletion {
+  id            String      @id @default(cuid())
+  distributorId String
+  distributor   Distributor @relation(fields: [distributorId], references: [id])
+  productId     String
+  product       Product     @relation(fields: [productId], references: [id])
+  period        String // YYYY-MM
+  accountName   String      @default("") // retail account, if known
+  accountType   String      @default("UNKNOWN") // ON_PREMISE | OFF_PREMISE | UNKNOWN
+  cases         Float
+  source        String      @default("MANUAL") // MANUAL | IMPORT
+  createdAt     DateTime    @default(now())
+}
+
+// ---------- Accounting ----------
+
+model Expense {
+  id          String   @id @default(cuid())
+  date        DateTime
+  vendor      String
+  category    String // COGS | MARKETING | LOGISTICS | COMPLIANCE | G_AND_A | OTHER
+  amountCents Int
+  notes       String   @default("")
+}
+
+// ---------- Marketing ----------
+
+model Campaign {
+  id          String    @id @default(cuid())
+  name        String
+  market      String    @default("")
+  budgetCents Int       @default(0)
+  startDate   DateTime
+  endDate     DateTime?
+  status      String    @default("ACTIVE") // PLANNED | ACTIVE | COMPLETED
+  notes       String    @default("")
+
+  activities MarketingActivity[]
+}
+
+model MarketingActivity {
+  id         String    @id @default(cuid())
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+  date       DateTime
+  type       String    @default("EVENT") // EVENT | TASTING | DIGITAL | SPONSORSHIP | OTHER
+  name       String
+  market     String    @default("")
+  costCents  Int       @default(0)
+  notes      String    @default("")
+}

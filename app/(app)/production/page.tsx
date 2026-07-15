@@ -1,0 +1,142 @@
+import { requireUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { money, num, dateStr } from "@/lib/format";
+import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState } from "@/components/ui";
+import { createRun, startRun, completeRun } from "./actions";
+
+export default async function ProductionPage() {
+  await requireUser();
+  const [runs, products, warehouses] = await Promise.all([
+    db.productionRun.findMany({
+      orderBy: { startDate: "desc" },
+      include: { product: true, warehouse: true },
+    }),
+    db.product.findMany({ where: { active: true }, orderBy: { sku: "asc" } }),
+    db.warehouse.findMany({ orderBy: { name: "asc" } }),
+  ]);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div>
+      <PageHeader
+        title="Production Runs"
+        subtitle="Track each batch from agave to bottled lot. Completing a run adds its bottles to inventory."
+      />
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <Card title="All runs">
+            {runs.length === 0 ? (
+              <EmptyState>No production runs yet — plan one on the right.</EmptyState>
+            ) : (
+              <div className="space-y-4">
+                {runs.map((r) => (
+                  <div key={r.id} className="rounded-lg border border-stone-200 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="font-mono text-sm font-semibold">{r.lotCode}</span>
+                        <span className="ml-3 text-sm text-stone-600">{r.product.name}</span>
+                      </div>
+                      {r.status === "COMPLETED" ? (
+                        <Badge tone="green">Completed {dateStr(r.bottledDate)}</Badge>
+                      ) : r.status === "IN_PROGRESS" ? (
+                        <Badge tone="blue">In progress</Badge>
+                      ) : (
+                        <Badge tone="gray">Planned</Badge>
+                      )}
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-stone-600 sm:grid-cols-4">
+                      <div>Started: {dateStr(r.startDate)}</div>
+                      <div>
+                        Bottles: {r.status === "COMPLETED"
+                          ? `${num(r.bottlesProduced)} actual`
+                          : `${num(r.bottlesPlanned)} planned`}
+                      </div>
+                      <div>Cost: {money(r.totalCostCents)}</div>
+                      <div>To: {r.warehouse.name}</div>
+                      {r.agaveSource && <div className="col-span-2">Agave: {r.agaveSource}</div>}
+                      {r.distillery && <div className="col-span-2">Distillery: {r.distillery}</div>}
+                      {r.notes && <div className="col-span-full text-stone-500">{r.notes}</div>}
+                    </div>
+
+                    {r.status === "PLANNED" && (
+                      <form action={startRun} className="mt-3">
+                        <input type="hidden" name="id" value={r.id} />
+                        <button className={btnSecondaryCls}>Mark in progress</button>
+                      </form>
+                    )}
+                    {r.status === "IN_PROGRESS" && (
+                      <form action={completeRun} className="mt-3 flex flex-wrap items-end gap-3">
+                        <input type="hidden" name="id" value={r.id} />
+                        <Field label="Actual bottles" className="w-36">
+                          <input
+                            name="bottlesProduced"
+                            type="number"
+                            required
+                            defaultValue={r.bottlesPlanned}
+                            className={inputCls}
+                          />
+                        </Field>
+                        <Field label="Bottled date" className="w-40">
+                          <input name="bottledDate" type="date" defaultValue={today} className={inputCls} />
+                        </Field>
+                        <Field label="Final cost ($, optional)" className="w-40">
+                          <input name="totalCost" placeholder={(r.totalCostCents / 100).toFixed(2)} className={inputCls} />
+                        </Field>
+                        <button className={btnCls}>Complete &amp; add to inventory</button>
+                      </form>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <Card title="Plan a run">
+          <form action={createRun} className="space-y-3">
+            <Field label="Lot code">
+              <input name="lotCode" required placeholder="LOT-2026-014" className={inputCls} />
+            </Field>
+            <Field label="Product">
+              <select name="productId" required className={inputCls}>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Destination warehouse">
+              <select name="warehouseId" required className={inputCls}>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Start date">
+                <input name="startDate" type="date" defaultValue={today} className={inputCls} />
+              </Field>
+              <Field label="Bottles planned">
+                <input name="bottlesPlanned" type="number" required className={inputCls} />
+              </Field>
+            </div>
+            <Field label="Agave source (optional)">
+              <input name="agaveSource" placeholder="Los Altos, Jalisco" className={inputCls} />
+            </Field>
+            <Field label="Distillery / NOM (optional)">
+              <input name="distillery" placeholder="NOM 1234" className={inputCls} />
+            </Field>
+            <Field label="Estimated total cost ($)">
+              <input name="totalCost" placeholder="15000.00" className={inputCls} />
+            </Field>
+            <Field label="Notes">
+              <textarea name="notes" rows={2} className={inputCls} />
+            </Field>
+            <button className={btnCls}>Plan run</button>
+          </form>
+        </Card>
+      </div>
+    </div>
+  );
+}
