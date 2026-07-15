@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toFloat, currentPeriod } from "@/lib/format";
 import { parseLsiInventory } from "@/lib/lsi-inventory";
+import { matchProduct } from "@/lib/product-match";
 
 /**
  * One-click import for LSI's monthly "Depletions and Shipments" workbook.
@@ -36,16 +37,13 @@ export async function importLsiInventory(formData: FormData) {
   const periodInput = String(formData.get("period") ?? "").trim();
   const period = report.reportPeriod ?? (/^\d{4}-\d{2}$/.test(periodInput) ? periodInput : currentPeriod());
 
-  // product matching by tier keyword; physical → 9L conversion per product
+  // product matching by tier + bottle size; physical → 9L conversion per product
   const products = await db.product.findMany({ where: { active: true } });
+  const matchNotes = new Set<string>();
   const productFor = (itemName: string) => {
-    const tier =
-      /cristalino/i.test(itemName) ? "OTHER"
-      : /a[nñ]ejo/i.test(itemName) ? "ANEJO"
-      : /reposado/i.test(itemName) ? "REPOSADO"
-      : /blanco/i.test(itemName) ? "BLANCO"
-      : null;
-    return tier ? products.find((p) => p.tier === tier) : undefined;
+    const { product, note } = matchProduct(itemName, products);
+    if (note) matchNotes.add(note);
+    return product;
   };
   const to9L = (physCases: number, p: { bottlesPerCase: number; sizeMl: number }) =>
     (physCases * p.bottlesPerCase * p.sizeMl) / 9000;
@@ -127,7 +125,8 @@ export async function importLsiInventory(formData: FormData) {
     lsiImporter: String(importerByProduct.size),
     lsiDist: String(distByProduct.size),
   });
-  if (warnings.length > 0) params.set("skipped", warnings.slice(0, 8).join(" | "));
+  const allNotes = [...warnings, ...matchNotes];
+  if (allNotes.length > 0) params.set("skipped", allNotes.slice(0, 8).join(" | "));
   redirect(`/channel?${params.toString()}`);
 }
 

@@ -48,8 +48,17 @@ export async function completeRun(formData: FormData) {
   const totalCostCents = toCents(formData.get("totalCost") as string);
   const bottledDate = toDate(formData.get("bottledDate") as string);
 
-  const run = await db.productionRun.findUniqueOrThrow({ where: { id } });
+  const run = await db.productionRun.findUniqueOrThrow({
+    where: { id },
+    include: { product: true },
+  });
   if (run.status === "COMPLETED") return;
+
+  // Snapshot the cost at completion: today's BOM-derived COGS × bottles.
+  // Later component-price or packaging changes never rewrite this run.
+  const autoCostCents = Math.round(
+    (run.product.caseCostCents / run.product.bottlesPerCase) * bottlesProduced
+  );
 
   const reqs = await bomRequirements(run.productId, bottlesProduced);
   const stock = await getComponentStock();
@@ -68,7 +77,7 @@ export async function completeRun(formData: FormData) {
         status: "COMPLETED",
         bottlesProduced,
         bottledDate,
-        ...(totalCostCents > 0 ? { totalCostCents } : {}),
+        totalCostCents: totalCostCents > 0 ? totalCostCents : autoCostCents,
       },
     }),
     db.inventoryMovement.create({

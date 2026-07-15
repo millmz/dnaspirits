@@ -28,8 +28,9 @@ model Product {
   sizeMl         Int     @default(750)
   abv            Float   @default(40)
   bottlesPerCase Int     @default(6)
-  caseCostCents  Int     @default(0) // fully-loaded production cost per case
-  exWorksCents   Int     @default(0) // ex-works price per case to the importer
+  casesPerPallet Int     @default(140)
+  caseCostCents  Int     @default(0) // production cost per case; auto-derived from the BOM when one exists
+  exWorksCents   Int     @default(0) // FOB / ex-works price per case to the importer
   active         Boolean @default(true)
 
   bomItems       BomItem[]

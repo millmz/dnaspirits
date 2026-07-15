@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toFloat } from "@/lib/format";
 import { parseCommercialReport } from "@/lib/commercial-report";
+import { matchProduct } from "@/lib/product-match";
 
 /**
  * One-click import for the importer's monthly Commercial Report (.xlsx).
@@ -49,22 +50,17 @@ export async function importCommercialReport(formData: FormData) {
     }
   }
 
-  // --- variants → products by tier keyword ---
+  // --- variants → products by tier + bottle size ---
   const products = await db.product.findMany({ where: { active: true } });
-  const tierOf = (variant: string) =>
-    /cristalino/i.test(variant) ? "OTHER"
-    : /a[nñ]ejo/i.test(variant) ? "ANEJO"
-    : /reposado/i.test(variant) ? "REPOSADO"
-    : /blanco/i.test(variant) ? "BLANCO"
-    : null;
   const productForVariant = new Map<string, string>();
   for (const variant of [...new Set(report.variants.map((v) => v.variant))]) {
-    const tier = tierOf(variant);
-    const match =
-      products.find((p) => p.name.toLowerCase() === variant.toLowerCase()) ??
-      (tier ? products.find((p) => p.tier === tier) : undefined);
-    if (match) productForVariant.set(variant, match.id);
-    else warnings.push(`Variant "${variant}" didn't match any product — skipped.`);
+    const { product, note } = matchProduct(variant, products);
+    if (product) {
+      productForVariant.set(variant, product.id);
+      if (note) warnings.push(note);
+    } else {
+      warnings.push(`Variant "${variant}" didn't match any product — skipped.`);
+    }
   }
 
   const periods = [...new Set(report.depletions.map((d) => d.period))];

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toCents, toFloat, toDate } from "@/lib/format";
+import { recalcProductsUsingComponents } from "@/lib/bom-cost";
 
 const MAX_LINES = 5;
 
@@ -76,7 +77,10 @@ export async function receivePO(formData: FormData) {
         })
       ),
   ]);
+  // received costs may differ — flow them through the BOMs into product COGS
+  await recalcProductsUsingComponents(po.lines.map((l) => l.componentId));
   revalidatePath("/purchasing");
+  revalidatePath("/products");
   revalidatePath("/components");
   revalidatePath("/");
 }

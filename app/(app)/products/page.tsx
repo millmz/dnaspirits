@@ -1,6 +1,7 @@
 import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { money } from "@/lib/format";
+import { caseCostFromBom } from "@/lib/bom-cost";
 import { PageHeader, Card, Table, Td, Badge, TierBadge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { createProduct, updateProduct, addBomItem, removeBomItem } from "./actions";
 
@@ -19,13 +20,13 @@ export default async function ProductsPage() {
       <PageHeader
         label="Supply Chain · Mexico"
         title="Products & BOM"
-        subtitle="Your expressions and what goes into each one. The bill of materials drives automatic dry-goods consumption when a production run completes."
+        subtitle="Your expressions and what goes into each one. COGS is derived live from the bill of materials; FOB pricing is stored separately so you can run pricing scenarios without touching production costs."
       />
 
       <Card title="Catalog">
         <Table
-          headers={["SKU", "Product", "Tier", "Size", "Btl/Case", "Case COGS", "Ex-works /case", "Margin", "Status"]}
-          align={["left", "left", "left", "left", "right", "right", "right", "right", "left"]}
+          headers={["SKU", "Product", "Tier", "Size", "Btl/Case", "Cases/Pallet", "COGS /unit", "COGS /case", "FOB /case", "Margin", "Status"]}
+          align={["left", "left", "left", "left", "right", "right", "right", "right", "right", "right", "left"]}
         >
           {products.map((p) => {
             const margin =
@@ -39,7 +40,12 @@ export default async function ProductsPage() {
                 <Td><TierBadge tier={p.tier} /></Td>
                 <Td>{p.sizeMl}ml · {p.abv}%</Td>
                 <Td right>{p.bottlesPerCase}</Td>
-                <Td right>{money(p.caseCostCents)}</Td>
+                <Td right>{p.casesPerPallet}</Td>
+                <Td right>{money(Math.round(p.caseCostCents / p.bottlesPerCase))}</Td>
+                <Td right>
+                  {money(p.caseCostCents)}
+                  {p.bomItems.length > 0 && <Badge tone="green">BOM</Badge>}
+                </Td>
                 <Td right>{money(p.exWorksCents)}</Td>
                 <Td right>{margin}%</Td>
                 <Td>{p.active ? <Badge tone="green">Active</Badge> : <Badge>Inactive</Badge>}</Td>
@@ -47,56 +53,81 @@ export default async function ProductsPage() {
             );
           })}
         </Table>
+        <p className="mt-3 text-xs text-slate/70">
+          A <Badge tone="green">BOM</Badge> tag means COGS is calculated automatically from components below —
+          it updates when component costs change (e.g. on PO receipt). Completed production runs keep the
+          cost they were bottled at, so history is never rewritten.
+        </p>
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        {products.filter((p) => p.active).map((p) => (
-          <Card key={p.id} title={`BOM — ${p.name}`}>
-            {p.bomItems.length === 0 ? (
-              <EmptyState>No components mapped yet.</EmptyState>
-            ) : (
-              <Table headers={["Component", "Qty", "Per", ""]} align={["left", "right", "left", "left"]}>
-                {p.bomItems.map((b) => (
-                  <tr key={b.id}>
-                    <Td>{b.component.name}</Td>
-                    <Td right>{b.qty}</Td>
-                    <Td>{b.per === "CASE" ? "per case" : "per bottle"}</Td>
-                    <Td>
-                      <form action={removeBomItem}>
-                        <input type="hidden" name="id" value={b.id} />
-                        <button className="text-xs text-slate/60 hover:text-burnt">Remove</button>
-                      </form>
-                    </Td>
-                  </tr>
-                ))}
-              </Table>
-            )}
-            <form action={addBomItem} className="mt-4 grid grid-cols-[1fr_70px_110px_auto] items-end gap-2">
-              <input type="hidden" name="productId" value={p.id} />
-              <Field label="Component">
-                <select name="componentId" className={inputCls}>
-                  {components.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </Field>
-              <Field label="Qty">
-                <input name="qty" defaultValue="1" className={inputCls} />
-              </Field>
-              <Field label="Per">
-                <select name="per" className={inputCls}>
-                  <option value="BOTTLE">per bottle</option>
-                  <option value="CASE">per case</option>
-                </select>
-              </Field>
-              <button className={btnCls}>Add</button>
-            </form>
-          </Card>
-        ))}
+        {products.filter((p) => p.active).map((p) => {
+          const caseCost = caseCostFromBom(p.bomItems, p.bottlesPerCase);
+          return (
+            <Card key={p.id} title={`BOM — ${p.name}`}>
+              {p.bomItems.length === 0 ? (
+                <EmptyState>No components mapped yet.</EmptyState>
+              ) : (
+                <>
+                  <Table headers={["Component", "Qty", "Per", "Cost/btl", ""]} align={["left", "right", "left", "right", "left"]}>
+                    {p.bomItems.map((b) => (
+                      <tr key={b.id}>
+                        <Td>{b.component.name}</Td>
+                        <Td right>{b.qty}</Td>
+                        <Td>{b.per === "CASE" ? "per case" : "per bottle"}</Td>
+                        <Td right>
+                          {money(
+                            Math.round(
+                              b.per === "CASE"
+                                ? (b.qty * b.component.unitCostCents) / p.bottlesPerCase
+                                : b.qty * b.component.unitCostCents
+                            )
+                          )}
+                        </Td>
+                        <Td>
+                          <form action={removeBomItem}>
+                            <input type="hidden" name="id" value={b.id} />
+                            <button className="text-xs text-slate/60 hover:text-burnt">Remove</button>
+                          </form>
+                        </Td>
+                      </tr>
+                    ))}
+                  </Table>
+                  <div className="mt-2 flex justify-between border-t border-ink/10 pt-2 text-sm">
+                    <span className="brand-heading text-xs text-slate">COGS from BOM</span>
+                    <span className="font-medium">
+                      {money(Math.round(caseCost / p.bottlesPerCase))} /unit · {money(caseCost)} /case
+                    </span>
+                  </div>
+                </>
+              )}
+              <form action={addBomItem} className="mt-4 grid grid-cols-[1fr_70px_110px_auto] items-end gap-2">
+                <input type="hidden" name="productId" value={p.id} />
+                <Field label="Component">
+                  <select name="componentId" className={inputCls}>
+                    {components.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Qty">
+                  <input name="qty" defaultValue="1" className={inputCls} />
+                </Field>
+                <Field label="Per">
+                  <select name="per" className={inputCls}>
+                    <option value="BOTTLE">per bottle</option>
+                    <option value="CASE">per case</option>
+                  </select>
+                </Field>
+                <button className={btnCls}>Add</button>
+              </form>
+            </Card>
+          );
+        })}
 
         <Card title="Add product">
           <form action={createProduct} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label="SKU">
-                <input name="sku" required placeholder="DN-CRISTALINO-750" className={inputCls} />
+                <input name="sku" required placeholder="DN-CRISTALINO-700" className={inputCls} />
               </Field>
               <Field label="Tier">
                 <select name="tier" className={inputCls}>
@@ -108,25 +139,28 @@ export default async function ProductsPage() {
               </Field>
             </div>
             <Field label="Name">
-              <input name="name" required placeholder="De Nada Cristalino 750ml" className={inputCls} />
+              <input name="name" required placeholder="De Nada Cristalino 700ml" className={inputCls} />
             </Field>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               <Field label="Size (ml)">
-                <input name="sizeMl" type="number" defaultValue={750} className={inputCls} />
+                <input name="sizeMl" type="number" defaultValue={700} className={inputCls} />
               </Field>
               <Field label="ABV %">
                 <input name="abv" type="number" step="0.1" defaultValue={40} className={inputCls} />
               </Field>
-              <Field label="Bottles/case">
+              <Field label="Btl/case">
                 <input name="bottlesPerCase" type="number" defaultValue={6} className={inputCls} />
+              </Field>
+              <Field label="Cases/pallet">
+                <input name="casesPerPallet" type="number" defaultValue={140} className={inputCls} />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Case COGS ($)">
-                <input name="caseCost" placeholder="90.00" className={inputCls} />
+              <Field label="Case COGS ($ — auto once a BOM exists)">
+                <input name="caseCost" placeholder="72.12" className={inputCls} />
               </Field>
-              <Field label="Ex-works price /case ($)">
-                <input name="exWorks" placeholder="180.00" className={inputCls} />
+              <Field label="FOB price /case ($)">
+                <input name="exWorks" placeholder="114.36" className={inputCls} />
               </Field>
             </div>
             <button className={btnCls}>Add product</button>
@@ -135,29 +169,38 @@ export default async function ProductsPage() {
 
         <Card title="Edit pricing & status">
           <div className="space-y-4">
-            {products.map((p) => (
-              <form
-                key={p.id}
-                action={updateProduct}
-                className="flex flex-wrap items-end gap-3 border-b border-ink/8 pb-4 last:border-0 last:pb-0"
-              >
-                <input type="hidden" name="id" value={p.id} />
-                <div className="w-36 pt-2 font-mono text-xs text-slate">{p.sku}</div>
-                <Field label="Name" className="min-w-48 flex-1">
-                  <input name="name" defaultValue={p.name} className={inputCls} />
-                </Field>
-                <Field label="COGS ($)" className="w-24">
-                  <input name="caseCost" defaultValue={(p.caseCostCents / 100).toFixed(2)} className={inputCls} />
-                </Field>
-                <Field label="Ex-works ($)" className="w-24">
-                  <input name="exWorks" defaultValue={(p.exWorksCents / 100).toFixed(2)} className={inputCls} />
-                </Field>
-                <label className="flex items-center gap-2 pb-2 text-sm text-slate">
-                  <input type="checkbox" name="active" defaultChecked={p.active} /> Active
-                </label>
-                <button className={btnCls}>Save</button>
-              </form>
-            ))}
+            {products.map((p) => {
+              const hasBom = p.bomItems.length > 0;
+              return (
+                <form
+                  key={p.id}
+                  action={updateProduct}
+                  className="flex flex-wrap items-end gap-3 border-b border-ink/8 pb-4 last:border-0 last:pb-0"
+                >
+                  <input type="hidden" name="id" value={p.id} />
+                  <div className="w-36 pt-2 font-mono text-xs text-slate">{p.sku}</div>
+                  <Field label="Name" className="min-w-48 flex-1">
+                    <input name="name" defaultValue={p.name} className={inputCls} />
+                  </Field>
+                  <Field label={hasBom ? "COGS (auto)" : "COGS ($)"} className="w-24">
+                    <input
+                      name="caseCost"
+                      defaultValue={(p.caseCostCents / 100).toFixed(2)}
+                      disabled={hasBom}
+                      title={hasBom ? "Derived from the BOM — edit component costs instead" : undefined}
+                      className={`${inputCls} ${hasBom ? "opacity-50" : ""}`}
+                    />
+                  </Field>
+                  <Field label="FOB ($)" className="w-24">
+                    <input name="exWorks" defaultValue={(p.exWorksCents / 100).toFixed(2)} className={inputCls} />
+                  </Field>
+                  <label className="flex items-center gap-2 pb-2 text-sm text-slate">
+                    <input type="checkbox" name="active" defaultChecked={p.active} /> Active
+                  </label>
+                  <button className={btnCls}>Save</button>
+                </form>
+              );
+            })}
           </div>
         </Card>
       </div>

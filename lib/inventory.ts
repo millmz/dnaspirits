@@ -6,6 +6,7 @@ export type StockRow = {
   name: string;
   tier: string;
   bottlesPerCase: number;
+  casesPerPallet: number;
   byWarehouse: Record<string, number>; // warehouseId -> bottles
   totalBottles: number;
 };
@@ -34,6 +35,7 @@ export async function getStock(): Promise<StockRow[]> {
       name: p.name,
       tier: p.tier,
       bottlesPerCase: p.bottlesPerCase,
+      casesPerPallet: p.casesPerPallet,
       byWarehouse,
       totalBottles: total,
     };
