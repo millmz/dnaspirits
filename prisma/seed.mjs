@@ -56,7 +56,7 @@ async function main() {
   });
 
   console.log("Seeded: admin user (admin@denada.com / denada123), warehouse:", warehouse.name);
-  console.log("IMPORTANT: change the admin password after first login (Settings → Team).");
+  console.log("IMPORTANT: change the admin password after first login (Settings).");
 }
 
 main()

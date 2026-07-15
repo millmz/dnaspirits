@@ -49,20 +49,29 @@ Lone Star Distributing,DN-BLANCO-750,2026-06,4,Total Wine Austin,off premise
 - `account` and `account_type` (on/off premise) are optional.
 - Unmatched rows are skipped and reported — nothing is silently dropped.
 
-## Deploying (Railway / Render / Fly)
+## Deploying to Render (recommended)
 
-The app is a standard Next.js server with a SQLite database file.
+The repo ships with a `render.yaml` Blueprint that configures everything:
+build, start (migrations + seed run automatically), a 1 GB persistent disk
+at `/data` for the SQLite database, and an auto-generated `AUTH_SECRET`.
 
-1. Set environment variables:
-   - `DATABASE_URL` — e.g. `file:/data/denada.db` (point at a **persistent volume**)
-   - `AUTH_SECRET` — a long random string (`openssl rand -hex 32`)
-2. Attach a persistent volume mounted at `/data` (Railway/Fly both support this).
-3. Build command: `npm run build` · Start command: `npm run db:migrate && npm start`
-4. Run `npm run db:seed` once to create the first admin user.
+1. Sign in at [render.com](https://render.com) with your GitHub account.
+2. Click **New → Blueprint**, select the `dnaspirits` repository, and click **Apply**.
+3. Wait for the first build (~5 minutes), then open the service URL.
+4. Log in with the default admin credentials and change the password immediately.
 
-Back up the SQLite file regularly (it's a single file — copy it anywhere safe).
-If the team grows, the Prisma schema ports to Postgres by changing the
-datasource provider and `DATABASE_URL`.
+Costs: Starter plan (~$7/mo) — required because the database disk needs a
+persistent volume, which the free tier doesn't support.
+
+Back up the SQLite file regularly (Render → service → Disks → snapshots, or
+copy `/data/denada.db` via the service shell). If the team grows, the Prisma
+schema ports to Postgres by changing the datasource provider and `DATABASE_URL`.
+
+### Other hosts (Railway / Fly)
+
+Standard Next.js server + SQLite file: mount a persistent volume, set
+`DATABASE_URL=file:/data/denada.db` and a random `AUTH_SECRET`, build with
+`npm install --include=dev && npm run build`, start with `npm run deploy:start`.
 
 ## Tech stack
 
