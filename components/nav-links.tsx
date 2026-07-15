@@ -6,7 +6,10 @@ import { usePathname } from "next/navigation";
 const opsSections: { label: string; items: { href: string; label: string }[] }[] = [
   {
     label: "Overview",
-    items: [{ href: "/", label: "Dashboard" }],
+    items: [
+      { href: "/", label: "Dashboard" },
+      { href: "/reports", label: "Reports & KPIs" },
+    ],
   },
   {
     label: "Supply Chain · MX",
