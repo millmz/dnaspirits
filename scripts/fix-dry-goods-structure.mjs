@@ -156,7 +156,68 @@ async function main() {
     }
   }
 
-  // ---- 3. recalc COGS from BOM + labor ----
+  // ---- 3. apply the RX2 final order's real box costs + $0.60/bottle labor ----
+  // RX2 GS final order, 2026-07-10 (Guadalajara): 700ml boxes $15.55 MXN,
+  // 1L boxes $17.74 MXN, ex-IVA, ≈ 17.54 MXN/USD on 2026-07-15.
+  // Only placeholder states are touched ($0 "Cost TBD" boxes, $1.00 labor),
+  // so values the team has since edited by hand are never overwritten.
+  const BOX_COSTS = [
+    ["Shipper Box — Blanco 700ml", 89, "$15.55 MXN ex-IVA ≈ $0.89 @ 17.54 MXN/USD (RX2 order 2026-07-10)"],
+    ["Shipper Box — Reposado 700ml", 89, "$15.55 MXN ex-IVA ≈ $0.89 @ 17.54 MXN/USD (RX2 order 2026-07-10)"],
+    ["Shipper Box — Añejo 700ml", 89, "$15.55 MXN ex-IVA ≈ $0.89 @ 17.54 MXN/USD (RX2 order 2026-07-10)"],
+    ["Shipper Box — Blanco 1L", 101, "$17.74 MXN ex-IVA ≈ $1.01 @ 17.54 MXN/USD (RX2 order 2026-07-10)"],
+    ["Shipper Box — Reposado 1L", 101, "$17.74 MXN ex-IVA ≈ $1.01 @ 17.54 MXN/USD (RX2 order 2026-07-10)"],
+  ];
+  for (const [name, cents, note] of BOX_COSTS) {
+    const updated = await db.component.updateMany({
+      where: { name, unitCostCents: 0, notes: { contains: "Cost TBD" } },
+      data: { unitCostCents: cents, notes: note },
+    });
+    if (updated.count > 0) console.log(`fix-dry-goods: ${name} priced at $${(cents / 100).toFixed(2)}.`);
+  }
+  const laborUpdated = await db.product.updateMany({
+    where: { laborPerBottleCents: 100 },
+    data: { laborPerBottleCents: 60 },
+  });
+  if (laborUpdated.count > 0) {
+    console.log(`fix-dry-goods: labor set to $0.60/bottle on ${laborUpdated.count} products.`);
+  }
+
+  // ---- 4. load the RX2 final order as a purchase order (receive when delivered) ----
+  const PO_NUMBER = "RX2-20260710";
+  if (!(await db.purchaseOrder.findUnique({ where: { poNumber: PO_NUMBER } }))) {
+    const rx2Supplier = await db.supplier.findFirst({ where: { name: { contains: "RX2" } } });
+    const ORDER = [
+      ["Shipper Box — Blanco 700ml", 2150, 89],
+      ["Shipper Box — Reposado 700ml", 1420, 89],
+      ["Shipper Box — Añejo 700ml", 1030, 89],
+      ["Shipper Box — Blanco 1L", 1100, 101],
+      ["Shipper Box — Reposado 1L", 1122, 101],
+    ];
+    const lines = [];
+    for (const [name, qty, unitCostCents] of ORDER) {
+      const comp = await findComponent(name);
+      if (comp) lines.push({ componentId: comp.id, qty, unitCostCents });
+    }
+    if (rx2Supplier && lines.length === ORDER.length) {
+      await db.purchaseOrder.create({
+        data: {
+          poNumber: PO_NUMBER,
+          supplierId: rx2Supplier.id,
+          status: "ORDERED",
+          orderDate: new Date("2026-07-10T00:00:00Z"),
+          notes:
+            "RX2 GS final order 2026-07-10 — 6,822 boxes. Prices ex-IVA, converted at 17.54 MXN/USD. " +
+            "Engraving/setup fees ($20,750 MXN) and Arandas delivery ($2,350 MXN) excluded — log as expenses. " +
+            "Delivery to Arandas pending; receive here when boxes arrive.",
+          lines: { create: lines },
+        },
+      });
+      console.log(`fix-dry-goods: purchase order ${PO_NUMBER} created (5 lines, 6,822 boxes).`);
+    }
+  }
+
+  // ---- 5. recalc COGS from BOM + labor ----
   const products = await db.product.findMany({
     include: { bomItems: { include: { component: true } } },
   });

@@ -8,12 +8,10 @@
  *
  * Structure notes:
  *  - Labels and shipper boxes are tracked PER SKU (each is its own reorder).
- *  - Bottling labor is NOT a dry good — it lives on each product as a
- *    per-bottle overhead that folds into COGS.
- *  - Shipper boxes start at $0 (real cost TBD); labor carries the full
- *    $1.00/bottle allocation so COGS matches the setup sheet exactly. When
- *    real box prices are entered on Dry Goods, trim labor to keep the split
- *    honest — COGS recalculates automatically.
+ *  - Bottling labor ($0.60/bottle) is NOT a dry good — it lives on each
+ *    product as a per-bottle overhead that folds into COGS.
+ *  - Shipper box costs come from the RX2 GS final order of 2026-07-10:
+ *    700ml $15.55 MXN, 1L $17.74 MXN, ex-IVA, ≈ 17.54 MXN/USD on 2026-07-15.
  */
 import { PrismaClient } from "@prisma/client";
 
@@ -69,26 +67,26 @@ async function main() {
 
   const cork = await mk("Cork / Stopper", "CLOSURE", 48, tapones.id);
 
-  const mkBox = (name) =>
-    mk(name, "SHIPPER", 0, rx2.id, "boxes", "Cost TBD — update here when invoiced and trim product labor to match.");
-  const boxBlanco700 = await mkBox("Shipper Box — Blanco 700ml");
-  const boxRepo700 = await mkBox("Shipper Box — Reposado 700ml");
-  const boxAnejo700 = await mkBox("Shipper Box — Añejo 700ml");
-  const boxBlanco1L = await mkBox("Shipper Box — Blanco 1L");
-  const boxRepo1L = await mkBox("Shipper Box — Reposado 1L");
+  const note700 = "$15.55 MXN ex-IVA ≈ $0.89 @ 17.54 MXN/USD (RX2 order 2026-07-10)";
+  const note1L = "$17.74 MXN ex-IVA ≈ $1.01 @ 17.54 MXN/USD (RX2 order 2026-07-10)";
+  const mkBox = (name, cents, note) => mk(name, "SHIPPER", cents, rx2.id, "boxes", note);
+  const boxBlanco700 = await mkBox("Shipper Box — Blanco 700ml", 89, note700);
+  const boxRepo700 = await mkBox("Shipper Box — Reposado 700ml", 89, note700);
+  const boxAnejo700 = await mkBox("Shipper Box — Añejo 700ml", 89, note700);
+  const boxBlanco1L = await mkBox("Shipper Box — Blanco 1L", 101, note1L);
+  const boxRepo1L = await mkBox("Shipper Box — Reposado 1L", 101, note1L);
 
   const blancoBulk = await mk("Blanco Tequila (bulk)", "BULK_TEQUILA", 1150, nom.id, "liters");
   const repoBulk = await mk("Reposado Tequila (bulk)", "BULK_TEQUILA", 1250, nom.id, "liters");
   const anejoBulk = await mk("Añejo Tequila (bulk)", "BULK_TEQUILA", 2400, nom.id, "liters");
 
   // ---- products + BOMs ----
-  // laborPerBottleCents carries the sheet's $1.00/bottle shipper+labor
-  // allocation until real box prices arrive. bom entries: [component, qty, per]
-  const LABOR = 100;
+  // bom entries: [component, qty, per]
+  const LABOR = 60; // bottling labor $0.60/bottle
   const CATALOG = [
     {
       sku: "DN-BLANCO-700", name: "De Nada Blanco 700ml", tier: "BLANCO", sizeMl: 700,
-      fobCents: 11436, expectCogsCase: 7212,
+      fobCents: 11436, expectCogsCase: 7061,
       bom: [
         [glass700, 1, "BOTTLE"], [labelBlanco700, 1, "BOTTLE"], [cork, 1, "BOTTLE"],
         [blancoBulk, 0.7, "BOTTLE"], [boxBlanco700, 1, "CASE"],
@@ -96,7 +94,7 @@ async function main() {
     },
     {
       sku: "DN-REPO-700", name: "De Nada Reposado 700ml", tier: "REPOSADO", sizeMl: 700,
-      fobCents: 12480, expectCogsCase: 7632,
+      fobCents: 12480, expectCogsCase: 7481,
       bom: [
         [glass700, 1, "BOTTLE"], [labelRepo700, 1, "BOTTLE"], [cork, 1, "BOTTLE"],
         [repoBulk, 0.7, "BOTTLE"], [boxRepo700, 1, "CASE"],
@@ -104,7 +102,7 @@ async function main() {
     },
     {
       sku: "DN-ANEJO-700", name: "De Nada Añejo 700ml", tier: "ANEJO", sizeMl: 700,
-      fobCents: 16662, expectCogsCase: 12744,
+      fobCents: 16662, expectCogsCase: 12593,
       bom: [
         [glass700, 1, "BOTTLE"], [labelAnejo700, 1, "BOTTLE"], [cork, 1, "BOTTLE"],
         [anejoBulk, 0.7, "BOTTLE"], [boxAnejo700, 1, "CASE"],
@@ -112,7 +110,7 @@ async function main() {
     },
     {
       sku: "DN-BLANCO-1L", name: "De Nada Blanco 1L", tier: "BLANCO", sizeMl: 1000,
-      fobCents: 14142, expectCogsCase: 9774,
+      fobCents: 14142, expectCogsCase: 9635,
       bom: [
         [glass1L, 1, "BOTTLE"], [labelBlanco1L, 1, "BOTTLE"], [cork, 1, "BOTTLE"],
         [blancoBulk, 1.0, "BOTTLE"], [boxBlanco1L, 1, "CASE"],
@@ -120,7 +118,7 @@ async function main() {
     },
     {
       sku: "DN-REPO-1L", name: "De Nada Reposado 1L", tier: "REPOSADO", sizeMl: 1000,
-      fobCents: 15600, expectCogsCase: 10374,
+      fobCents: 15600, expectCogsCase: 10235,
       bom: [
         [glass1L, 1, "BOTTLE"], [labelRepo1L, 1, "BOTTLE"], [cork, 1, "BOTTLE"],
         [repoBulk, 1.0, "BOTTLE"], [boxRepo1L, 1, "CASE"],
