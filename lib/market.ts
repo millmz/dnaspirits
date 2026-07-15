@@ -16,10 +16,11 @@ export type MarketRow = {
  * depletes (3-month average). weeksOfSupply is the restock clock.
  */
 export async function getMarketPosition(): Promise<MarketRow[]> {
-  const [products, stocks, depletions] = await Promise.all([
+  const [products, stocks, depletions, skuDepletions] = await Promise.all([
     db.product.findMany({ where: { active: true }, orderBy: { sku: "asc" } }),
     db.channelStock.findMany(),
     db.depletion.findMany(),
+    db.skuDepletion.findMany(),
   ]);
 
   return products.map((p) => {
@@ -35,9 +36,14 @@ export async function getMarketPosition(): Promise<MarketRow[]> {
     }
     const channelCases = [...latestByHolder.values()].reduce((a, x) => a + x.cases, 0);
 
-    // velocity: average of the 3 most recent months that have depletion data
+    // velocity: average of the 3 most recent months that have depletion data.
+    // Per-SKU rows from the commercial report ("Variants") plus any
+    // SKU-tagged manual/CSV depletion records.
     const byPeriod = new Map<string, number>();
     for (const d of depletions.filter((d) => d.productId === p.id)) {
+      byPeriod.set(d.period, (byPeriod.get(d.period) ?? 0) + d.cases);
+    }
+    for (const d of skuDepletions.filter((d) => d.productId === p.id)) {
       byPeriod.set(d.period, (byPeriod.get(d.period) ?? 0) + d.cases);
     }
     const recent = [...byPeriod.entries()]

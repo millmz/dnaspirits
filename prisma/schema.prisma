@@ -38,6 +38,7 @@ model Product {
   saleLines      ExWorksLine[]
   depletions     Depletion[]
   channelStocks  ChannelStock[]
+  skuDepletions  SkuDepletion[]
 }
 
 // ---------- Suppliers, dry goods & purchasing (Mexico) ----------
@@ -179,9 +180,11 @@ model Importer {
   phone       String @default("")
   notes       String @default("")
 
-  distributors  Distributor[]
-  sales         ExWorksSale[]
-  channelStocks ChannelStock[]
+  distributors    Distributor[]
+  sales           ExWorksSale[]
+  channelStocks   ChannelStock[]
+  marketSnapshots MarketSnapshot[]
+  chainVolumes    ChainVolume[]
 }
 
 model Distributor {
@@ -243,14 +246,52 @@ model Depletion {
   id            String      @id @default(cuid())
   distributorId String
   distributor   Distributor @relation(fields: [distributorId], references: [id])
-  productId     String
-  product       Product     @relation(fields: [productId], references: [id])
+  productId     String? // null = brand-level (importer reports don't break out SKUs)
+  product       Product?    @relation(fields: [productId], references: [id])
   period        String // YYYY-MM
   accountName   String      @default("")
   accountType   String      @default("UNKNOWN") // ON_PREMISE | OFF_PREMISE | UNKNOWN
-  cases         Float
-  source        String      @default("MANUAL") // MANUAL | IMPORT
+  cases         Float // 9L-equivalent cases (industry standard)
+  source        String      @default("MANUAL") // MANUAL | IMPORT | REPORT
   createdAt     DateTime    @default(now())
+}
+
+/// National per-SKU monthly depletions (the report's "Variants" section).
+model SkuDepletion {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  period    String // YYYY-MM
+  cases     Float // 9L equivs
+  source    String   @default("REPORT")
+  createdAt DateTime @default(now())
+}
+
+/// YTD volume by retail chain (the report's "Top 20 Chain" section).
+model ChainVolume {
+  id         String   @id @default(cuid())
+  importerId String
+  importer   Importer @relation(fields: [importerId], references: [id])
+  period     String // report month YYYY-MM
+  chain      String
+  ytdCases   Float
+  ytdCasesLY Float?
+  createdAt  DateTime @default(now())
+}
+
+/// YTD trade stats per market, from the importer's commercial report.
+model MarketSnapshot {
+  id           String   @id @default(cuid())
+  importerId   String
+  importer     Importer @relation(fields: [importerId], references: [id])
+  period       String // report month YYYY-MM
+  market       String // state code
+  ytdCases     Float // 9L equivs
+  ytdCasesLY   Float?
+  accounts     Int
+  accountsLY   Int?
+  velocity     Float?
+  createdAt    DateTime @default(now())
 }
 
 // ---------- Marketing ----------
