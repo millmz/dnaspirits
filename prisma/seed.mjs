@@ -20,7 +20,7 @@ async function main() {
     data: {
       email: "admin@denada.com",
       name: "Admin",
-      passwordHash: await bcrypt.hash("denada123", 10),
+      passwordHash: await bcrypt.hash("denada123", 12),
       role: "ADMIN",
     },
   });

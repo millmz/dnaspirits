@@ -3,6 +3,11 @@ services:
     name: denada-ops
     runtime: node
     plan: starter
+    # Custom domain — add a CNAME record at your DNS provider pointing
+    # ops.denadatequila.com to this service's onrender.com hostname, and
+    # Render provisions TLS automatically.
+    domains:
+      - ops.denadatequila.com
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm run deploy:start
     disk:

@@ -380,6 +380,19 @@ model Expense {
   notes       String   @default("")
 }
 
+/// QuickBooks Online OAuth connection (single company). Tokens are stored
+/// AES-256-GCM encrypted with a key derived from AUTH_SECRET.
+model QboConnection {
+  id               Int       @id @default(1)
+  realmId          String
+  accessTokenEnc   String
+  refreshTokenEnc  String
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime?
+  lastSyncAt       DateTime?
+  updatedAt        DateTime  @updatedAt
+}
+
 /// A line from the bookkeeper's QuickBooks P&L export.
 model FinancialEntry {
   id          String   @id @default(cuid())

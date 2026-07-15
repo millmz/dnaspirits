@@ -34,7 +34,9 @@ export default async function LoginPage({
         >
           {error && (
             <div className="rounded-md bg-burnt/10 px-3 py-2 text-sm text-burnt">
-              Invalid email or password.
+              {error === "locked"
+                ? "Too many attempts — wait 15 minutes and try again."
+                : "Invalid email or password."}
             </div>
           )}
           <Field label="Email">

@@ -3,18 +3,18 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireAdmin, requireUser } from "@/lib/auth";
+import { createSession, requireAdmin, requireUser } from "@/lib/auth";
 
 export async function createUser(formData: FormData) {
   await requireAdmin();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
-  if (!email || password.length < 8) return;
+  if (!email || password.length < 12) return;
   await db.user.create({
     data: {
       email,
       name: String(formData.get("name") ?? "").trim(),
-      passwordHash: await bcrypt.hash(password, 10),
+      passwordHash: await bcrypt.hash(password, 12),
       role: ["ADMIN", "MEMBER", "BOOKKEEPER"].includes(String(formData.get("role")))
         ? String(formData.get("role"))
         : "MEMBER",
@@ -34,11 +34,19 @@ export async function deleteUser(formData: FormData) {
 export async function changeOwnPassword(formData: FormData) {
   const user = await requireUser();
   const password = String(formData.get("password") ?? "");
-  if (password.length < 8) return;
-  await db.user.update({
-    where: { id: user.id },
-    data: { passwordHash: await bcrypt.hash(password, 10) },
-  });
+  if (password.length < 12) return;
+  const passwordHash = await bcrypt.hash(password, 12);
+  await db.user.update({ where: { id: user.id }, data: { passwordHash } });
+  // changing the password invalidates every other session for this account;
+  // refresh this one so the user stays signed in
+  await createSession(user.id, passwordHash);
+  revalidatePath("/settings");
+}
+
+export async function backupNow() {
+  await requireAdmin();
+  const { backupDatabase } = await import("@/lib/backup");
+  await backupDatabase();
   revalidatePath("/settings");
 }
 

@@ -4,9 +4,29 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { parse } from "csv-parse/sync";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireUser, requireAdmin } from "@/lib/auth";
 import { toCents, toDate, toFloat } from "@/lib/format";
 import { parseQbPnl } from "@/lib/qb-pnl";
+
+/** Pulls this year's (and last year's) P&L by month straight from QuickBooks. */
+export async function syncQbo() {
+  await requireAdmin();
+  const { qboSyncYear } = await import("@/lib/qbo");
+  const year = new Date().getFullYear();
+  let rows = 0;
+  try {
+    const a = await qboSyncYear(year);
+    const b = await qboSyncYear(year - 1);
+    rows = a.rows + b.rows;
+  } catch (e) {
+    console.error("qbo sync:", e);
+    redirect(`/accounting?err=${encodeURIComponent("QuickBooks sync failed — reconnect and try again")}`);
+  }
+  revalidatePath("/accounting");
+  revalidatePath("/reports");
+  revalidatePath("/");
+  redirect(`/accounting?imported=${rows}`);
+}
 
 export async function createExpense(formData: FormData) {
   await requireUser();

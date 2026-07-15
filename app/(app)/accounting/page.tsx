@@ -3,7 +3,9 @@ import { db } from "@/lib/db";
 import { money, dateStr, num } from "@/lib/format";
 import { PageHeader, Card, Stat, Table, Td, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { getOpenReceivables } from "@/lib/receivables";
-import { createExpense, deleteExpense, importFinancials } from "./actions";
+import { qboConfigured, qboConnection } from "@/lib/qbo";
+import { getCurrentUser } from "@/lib/auth";
+import { createExpense, deleteExpense, importFinancials, syncQbo } from "./actions";
 
 const CB_LABELS: Record<string, string> = {
   DISTRIBUTOR_PROMO: "Distributor promo / billback",
@@ -61,6 +63,10 @@ export default async function AccountingPage({
   );
   const receivablesCents = receivables.totalNetCents;
   const chargebacksTotalYtd = chargebacksYtd.reduce((a, c) => a + (c._sum.amountCents ?? 0), 0);
+
+  const me = await getCurrentUser();
+  const qboEnabled = qboConfigured();
+  const qbo = qboEnabled ? await qboConnection() : null;
 
   // QuickBooks view: net by period
   const qbByPeriod = new Map<string, { income: number; expense: number }>();
@@ -232,6 +238,45 @@ export default async function AccountingPage({
               </div>
             </form>
           </Card>
+
+          {me?.role === "ADMIN" && (
+            <Card title="QuickBooks Online sync">
+              {!qboEnabled ? (
+                <p className="text-xs leading-relaxed text-slate/80">
+                  Live sync is ready to activate: create an app at developer.intuit.com (Accounting scope),
+                  set its redirect URI to <span className="font-mono">/api/qbo/callback</span> on this
+                  domain, then add <span className="font-mono">QBO_CLIENT_ID</span> and{" "}
+                  <span className="font-mono">QBO_CLIENT_SECRET</span> env vars in Render. Until then, the
+                  file upload above does the same job.
+                </p>
+              ) : !qbo ? (
+                <div>
+                  <p className="mb-3 text-sm text-ink/85">
+                    Connect the DNA Spirits QuickBooks company to pull the P&amp;L directly.
+                  </p>
+                  <a
+                    href="/api/qbo/connect"
+                    className="inline-block rounded-md bg-agave px-4 py-2 text-sm font-medium text-cream hover:bg-agave-deep"
+                  >
+                    Connect QuickBooks
+                  </a>
+                </div>
+              ) : (
+                <div>
+                  <p className="mb-3 text-sm text-ink/85">
+                    Connected to company {qbo.realmId}.
+                    {qbo.lastSyncAt && ` Last synced ${dateStr(qbo.lastSyncAt)}.`}
+                  </p>
+                  <form action={syncQbo}>
+                    <button className={btnCls}>Sync P&L now</button>
+                  </form>
+                  <p className="mt-2 text-xs text-slate/70">
+                    Pulls this year and last year by month, replacing those periods — same as an upload.
+                  </p>
+                </div>
+              )}
+            </Card>
+          )}
 
           <Card title="Year-end package">
             <p className="text-sm leading-relaxed text-ink/85">

@@ -85,6 +85,15 @@ export default async function ReportsPage() {
         subtitle="The whole business rolled up across every month of data you've uploaded — depletions, shipments, channel stock and financials accumulate here, month over month."
       />
 
+      <div className="-mt-2 mb-5">
+        <Link
+          href="/investor"
+          className="inline-block rounded-md border border-agave px-3 py-1.5 text-sm font-medium text-agave-deep hover:bg-agave/10"
+        >
+          Investor one-pager →
+        </Link>
+      </div>
+
       {monthly.length === 0 ? (
         <Card title="No data yet">
           <EmptyState>
