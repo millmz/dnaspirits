@@ -4,11 +4,11 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { parse } from "csv-parse/sync";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireOps } from "@/lib/auth";
 import { toFloat } from "@/lib/format";
 
 export async function createDepletion(formData: FormData) {
-  await requireUser();
+  await requireOps();
   await db.depletion.create({
     data: {
       distributorId: String(formData.get("distributorId")),
@@ -24,7 +24,7 @@ export async function createDepletion(formData: FormData) {
 }
 
 export async function deleteDepletion(formData: FormData) {
-  await requireUser();
+  await requireOps();
   await db.depletion.delete({ where: { id: String(formData.get("id")) } });
   revalidatePath("/depletions");
 }
@@ -38,7 +38,7 @@ export async function deleteDepletion(formData: FormData) {
  * Unmatched rows are skipped and reported, never silently dropped.
  */
 export async function importDepletions(formData: FormData) {
-  await requireUser();
+  await requireOps();
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) redirect("/depletions?err=No+file+selected");
 

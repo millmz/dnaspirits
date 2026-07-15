@@ -15,7 +15,7 @@ export async function login(formData: FormData) {
   }
 
   await createSession(user.id);
-  redirect("/");
+  redirect(user.role === "BOOKKEEPER" ? "/accounting" : "/");
 }
 
 export async function logout() {

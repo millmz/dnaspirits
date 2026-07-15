@@ -1,86 +1,71 @@
-# Denada Tequila — Operations
+# Tequila De Nada — Operations
 
-Custom business management system for Denada Tequila. One place for the whole
-operation, organized into pillars:
+Custom operations platform for Tequila De Nada, built around the brand's actual
+business model: contract production in Jalisco, ex-works sales to an importer,
+and a three-tier US market you monitor through your importer's reports.
 
-| Pillar | What it does |
+Branded to the De Nada Master Playbook — palette, logo, typography, and voice.
+
+## The two worlds
+
+**Supply chain (Mexico) — what you own and manage**
+
+| Page | What it does |
 | --- | --- |
-| **Dashboard** | Inventory on hand, monthly/YTD depletions, open receivables, recent activity |
-| **Supply chain** | Products/SKUs, production runs with lot codes, multi-warehouse inventory ledger |
-| **Distribution** | Distributor accounts, shipments (draw down inventory), depletion tracking with CSV import |
-| **Accounting** | Expenses by category, receivables, real-time YTD P&L approximation |
-| **Marketing** | Campaigns with budget-vs-spend, events/tastings log |
-| **Settings** | Team logins (admin/member roles), warehouses |
+| Dry Goods | Glass, labels, stoppers, capsules, shipper boxes, bulk tequila — on-hand counts, unit costs, lead times, reorder flags |
+| Purchasing | POs to Mexican suppliers; receiving a PO adds goods to stock |
+| Products & BOM | Each SKU's bill of materials — what one bottle/case consumes |
+| Production | Runs at the contract distillery by lot; completing a run adds finished goods **and consumes dry goods per the BOM** (blocked if components are short) |
+| Finished Goods | Bottled stock you own in Mexico until it sells ex-works |
 
-## How the core loop works
+**Market (US) — what you watch through your importer's reports**
 
-1. **Products** define your SKUs, bottles per case, case COGS, and wholesale case price.
-2. **Production runs** track each batch (lot code, agave source, distillery/NOM, cost).
-   Completing a run posts the bottles into a warehouse.
-3. **Shipments** record sales to distributors. Marking a shipment *shipped* checks stock
-   and draws down inventory; it also becomes an invoice you can mark paid.
-4. **Depletions** are the cases your distributors sell through to retail — import their
-   monthly reports as CSV or enter manually. This is your true growth number.
-5. Inventory is a **movement ledger** (production in, shipments out, transfers,
-   adjustments, samples), so stock on hand is always auditable.
+| Page | What it does |
+| --- | --- |
+| Importer & Distributors | The channel map: importer(s), and distributors by market |
+| Ex-Works Sales | Sales to the importer at the distillery door; confirming hands off ownership and creates the receivable |
+| Channel Inventory | Importer + per-distributor stock from their reports, with **weeks-of-supply** per SKU (channel stock ÷ depletion velocity) |
+| Depletions | Cases sold through to retail — CSV import for the reports your importer sends (Karma / iDig) |
+
+**Plus:** Marketing (social content calendar with idea → drafted → scheduled →
+posted, and an influencer/PR pipeline), Finance (real-time operating numbers,
+owner expense log, and the bookkeeper's monthly QuickBooks P&L upload), and a
+dashboard that surfaces **restock signals** — low weeks-of-supply in the
+channel and dry goods below reorder point, with lead times.
+
+## Team roles
+
+- **Admin** — everything, plus Settings (users, warehouses)
+- **Member** — full operations
+- **Bookkeeper** — Finance only; lands on Accounting, other pages redirect
 
 ## Running locally
 
 ```bash
 npm install
-npm run setup   # applies DB migrations + seeds admin user
+npm run setup   # migrations + seed (admin login, SKUs, default BOMs)
 npm run dev     # http://localhost:3000
 ```
 
-Default login: `admin@denada.com` / `denada123` — **change this immediately**
-(Settings → Change my password).
+Default login: `admin@denada.com` / `denada123` — **change immediately**.
 
-## Depletion CSV format
+## CSV formats (flexible column names, case-insensitive)
 
-Flexible column names, matched case-insensitively:
+- **Depletions:** `distributor, sku, period, cases` (+ optional `account, account_type`)
+- **Channel stock:** `holder, sku, period, cases` — holder = importer or distributor name
+- **QuickBooks P&L:** `period, account, type, amount` — type = income/expense; re-uploading a month replaces it
 
-```csv
-distributor,sku,period,cases,account,account_type
-Lone Star Distributing,DN-BLANCO-750,2026-06,4,Total Wine Austin,off premise
-```
+Unmatched rows are always skipped **and reported**, never silently dropped.
+Dedicated one-click parsers for the exact Karma / iDig export formats can be
+added once sample files are available.
 
-- `distributor` must match a distributor name in the system; `sku` a product SKU (or product name).
-- `period` accepts `2026-06`, `2026/06/15`, or any parseable date (normalized to month).
-- `account` and `account_type` (on/off premise) are optional.
-- Unmatched rows are skipped and reported — nothing is silently dropped.
+## Deploying to Render
 
-## Deploying to Render (recommended)
-
-The repo ships with a `render.yaml` Blueprint that configures everything:
-build, start (migrations + seed run automatically), a 1 GB persistent disk
-at `/data` for the SQLite database, and an auto-generated `AUTH_SECRET`.
-
-1. Sign in at [render.com](https://render.com) with your GitHub account.
-2. Click **New → Blueprint**, select the `dnaspirits` repository, and click **Apply**.
-3. Wait for the first build (~5 minutes), then open the service URL.
-4. Log in with the default admin credentials and change the password immediately.
-
-Costs: Starter plan (~$7/mo) — required because the database disk needs a
-persistent volume, which the free tier doesn't support.
-
-Back up the SQLite file regularly (Render → service → Disks → snapshots, or
-copy `/data/denada.db` via the service shell). If the team grows, the Prisma
-schema ports to Postgres by changing the datasource provider and `DATABASE_URL`.
-
-### Other hosts (Railway / Fly)
-
-Standard Next.js server + SQLite file: mount a persistent volume, set
-`DATABASE_URL=file:/data/denada.db` and a random `AUTH_SECRET`, build with
-`npm install --include=dev && npm run build`, start with `npm run deploy:start`.
+`render.yaml` Blueprint included: New → Blueprint → select this repo → Apply.
+Starter plan (~$7/mo) with a persistent disk for the SQLite database;
+`AUTH_SECRET` is auto-generated and migrations + seed run on startup.
 
 ## Tech stack
 
 Next.js 16 (App Router, server actions) · TypeScript · Tailwind CSS 4 ·
-Prisma 6 + SQLite · JWT session auth (jose + bcryptjs)
-
-## Integration notes
-
-- **QuickBooks** remains the ledger of record; the Accounting pillar gives
-  real-time operating numbers. (A QuickBooks Online API sync is a natural next step.)
-- **TTB compliance**: production runs + the inventory ledger capture the data
-  needed for reporting; a dedicated compliance/report module is a planned pillar.
+Prisma 6 + SQLite · JWT session auth · Oswald + Libre Caslon (brand-matched type)

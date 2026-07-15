@@ -15,7 +15,9 @@ export async function createUser(formData: FormData) {
       email,
       name: String(formData.get("name") ?? "").trim(),
       passwordHash: await bcrypt.hash(password, 10),
-      role: formData.get("role") === "ADMIN" ? "ADMIN" : "MEMBER",
+      role: ["ADMIN", "MEMBER", "BOOKKEEPER"].includes(String(formData.get("role")))
+        ? String(formData.get("role"))
+        : "MEMBER",
     },
   });
   revalidatePath("/settings");

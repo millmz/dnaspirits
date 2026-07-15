@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { btnCls, inputCls, Field } from "@/components/ui";
@@ -9,26 +10,30 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const user = await getCurrentUser();
-  if (user) redirect("/");
+  if (user) redirect(user.role === "BOOKKEEPER" ? "/accounting" : "/");
   const { error } = await searchParams;
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="flex min-h-screen items-center justify-center bg-cream px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="text-3xl font-bold tracking-tight text-emerald-800">
-            DENADA
-          </div>
-          <div className="mt-1 text-sm uppercase tracking-[0.3em] text-stone-500">
-            Tequila · Operations
+        <div className="mb-8 flex flex-col items-center">
+          <Image
+            src="/logo-black.png"
+            alt="Tequila De Nada"
+            width={260}
+            height={155}
+            priority
+          />
+          <div className="brand-heading mt-2 text-xs tracking-[0.35em] text-agave-deep">
+            Operations
           </div>
         </div>
         <form
           action={login}
-          className="space-y-4 rounded-xl border border-stone-200 bg-white p-6 shadow-sm"
+          className="space-y-4 rounded-lg border border-ink/10 bg-white/80 p-6 shadow-sm"
         >
           {error && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="rounded-md bg-burnt/10 px-3 py-2 text-sm text-burnt">
               Invalid email or password.
             </div>
           )}
@@ -42,6 +47,7 @@ export default async function LoginPage({
             Sign in
           </button>
         </form>
+        <div className="brand-zigzag mx-auto mt-8 w-40" />
       </div>
     </div>
   );

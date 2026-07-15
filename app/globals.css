@@ -1,26 +1,52 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* De Nada brand system — from the Master Playbook color palette (p.45) */
+@theme {
+  --color-cream: #f3f8e4; /* Cream */
+  --color-cream-deep: #eaf0d8;
+  --color-ink: #231f20; /* Rich Black (Añejo) */
+  --color-agave: #018769; /* Green (secondary Blanco) */
+  --color-agave-deep: #016a53;
+  --color-blanco: #6aad9c; /* Turquoise (Blanco) */
+  --color-reposado: #d37240; /* Orange (Reposado) */
+  --color-burnt: #b83f26; /* Burnt Orange */
+  --color-slate: #4a4b4c; /* Dark Gray */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-heading: var(--font-oswald);
+  --font-serif-brand: var(--font-caslon);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #f3f8e4;
+  color: #231f20;
+  font-family:
+    "Helvetica Neue",
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+/* Condensed-caps headline treatment (Brothers OT / SP Mezcal stand-in) */
+.brand-heading {
+  font-family: var(--font-oswald), "Arial Narrow", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+/* Serif italic section label ("The Origin Story" treatment) */
+.brand-label {
+  font-family: var(--font-caslon), Georgia, serif;
+  font-style: italic;
+}
+
+/* Zigzag border accent from the playbook's graphic elements */
+.brand-zigzag {
+  height: 6px;
+  background: repeating-linear-gradient(
+    -45deg,
+    #018769 0 4px,
+    transparent 4px 8px
+  );
+  opacity: 0.55;
 }

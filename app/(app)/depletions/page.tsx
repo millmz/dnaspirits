@@ -1,7 +1,7 @@
-import { requireUser } from "@/lib/auth";
+import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { num, currentPeriod } from "@/lib/format";
-import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
+import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { createDepletion, deleteDepletion, importDepletions } from "./actions";
 
 export default async function DepletionsPage({
@@ -9,7 +9,7 @@ export default async function DepletionsPage({
 }: {
   searchParams: Promise<{ imported?: string; skipped?: string; err?: string }>;
 }) {
-  await requireUser();
+  await requireOps();
   const { imported, skipped, err } = await searchParams;
 
   const [depletions, distributors, products] = await Promise.all([
@@ -22,30 +22,27 @@ export default async function DepletionsPage({
     db.product.findMany({ where: { active: true }, orderBy: { sku: "asc" } }),
   ]);
 
-  // summary: cases by period (last 6 periods present in data)
-  const byPeriod = new Map<string, number>();
-  const all = await db.depletion.groupBy({ by: ["period"], _sum: { cases: true } });
-  for (const row of all) byPeriod.set(row.period, row._sum.cases ?? 0);
-  const summary = [...byPeriod.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6);
+  const byPeriod = await db.depletion.groupBy({ by: ["period"], _sum: { cases: true } });
+  const summary = byPeriod
+    .map((r) => [r.period, r._sum.cases ?? 0] as const)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .slice(0, 6);
 
   return (
     <div>
       <PageHeader
+        label="Market · United States"
         title="Depletions"
-        subtitle="Cases your distributors sold through to retail accounts — the number that actually grows the brand"
+        subtitle="Cases your distributors sold through to retail accounts — the number that actually grows the brand. Import the reports your importer sends from Karma / iDig."
       />
 
       {imported !== undefined && (
-        <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <Callout tone="green">
           Imported {imported} depletion record{imported === "1" ? "" : "s"}.
-          {skipped && (
-            <div className="mt-1 text-amber-700">Skipped rows: {skipped}</div>
-          )}
-        </div>
+          {skipped && <div className="mt-1 text-burnt">Skipped rows: {skipped}</div>}
+        </Callout>
       )}
-      {err && (
-        <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>
-      )}
+      {err && <Callout tone="red">{err}</Callout>}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -66,7 +63,7 @@ export default async function DepletionsPage({
 
           <Card title="Recent records">
             {depletions.length === 0 ? (
-              <EmptyState>Import a distributor report or add records manually.</EmptyState>
+              <EmptyState>Import a report or add records manually.</EmptyState>
             ) : (
               <Table
                 headers={["Period", "Distributor", "Product", "Account", "Cases", "Source", ""]}
@@ -83,7 +80,7 @@ export default async function DepletionsPage({
                     <Td>
                       <form action={deleteDepletion}>
                         <input type="hidden" name="id" value={d.id} />
-                        <button className="text-xs text-stone-400 hover:text-red-600">Delete</button>
+                        <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
                       </form>
                     </Td>
                   </tr>
@@ -94,19 +91,19 @@ export default async function DepletionsPage({
         </div>
 
         <div className="space-y-6">
-          <Card title="Import CSV report">
+          <Card title="Import depletion report (CSV)">
             <form action={importDepletions} className="space-y-3">
-              <Field label="Depletion report (.csv)">
+              <Field label="Report file (.csv)">
                 <input name="file" type="file" accept=".csv,text/csv" required className={inputCls} />
               </Field>
               <button className={btnCls}>Import</button>
-              <div className="text-xs leading-relaxed text-stone-500">
-                <p className="font-medium text-stone-600">Expected columns (flexible names):</p>
+              <div className="text-xs leading-relaxed text-slate/80">
+                <p className="brand-heading font-medium text-slate">Expected columns:</p>
                 <p className="mt-1 font-mono">distributor, sku, period, cases</p>
                 <p className="mt-1">
                   Optional: <span className="font-mono">account, account_type</span> (on/off premise).
-                  Period accepts <span className="font-mono">2026-07</span>, <span className="font-mono">2026/07/15</span>, etc.
-                  Distributor and SKU must already exist in the system; unmatched rows are skipped and reported.
+                  Unmatched rows are skipped and reported — nothing silently dropped.
+                  Send me a sample Karma / iDig export and I&apos;ll add a one-click parser for the exact format.
                 </p>
               </div>
             </form>

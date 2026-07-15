@@ -4,12 +4,13 @@ export type StockRow = {
   productId: string;
   sku: string;
   name: string;
+  tier: string;
   bottlesPerCase: number;
   byWarehouse: Record<string, number>; // warehouseId -> bottles
   totalBottles: number;
 };
 
-/** On-hand stock per product, computed from the movement ledger. */
+/** Finished-goods stock per product, computed from the movement ledger. */
 export async function getStock(): Promise<StockRow[]> {
   const [products, sums] = await Promise.all([
     db.product.findMany({ where: { active: true }, orderBy: { sku: "asc" } }),
@@ -31,6 +32,7 @@ export async function getStock(): Promise<StockRow[]> {
       productId: p.id,
       sku: p.sku,
       name: p.name,
+      tier: p.tier,
       bottlesPerCase: p.bottlesPerCase,
       byWarehouse,
       totalBottles: total,
@@ -47,4 +49,31 @@ export async function getStockForWarehouse(
     _sum: { bottles: true },
   });
   return agg._sum.bottles ?? 0;
+}
+
+/** Dry-goods on hand per component (from the component movement ledger). */
+export async function getComponentStock(): Promise<Map<string, number>> {
+  const sums = await db.componentMovement.groupBy({
+    by: ["componentId"],
+    _sum: { qty: true },
+  });
+  return new Map(sums.map((s) => [s.componentId, s._sum.qty ?? 0]));
+}
+
+/**
+ * Components a production run will consume, from the product's BOM.
+ * Returns [{componentId, name, unit, needed}]
+ */
+export async function bomRequirements(productId: string, bottles: number) {
+  const [product, bom] = await Promise.all([
+    db.product.findUniqueOrThrow({ where: { id: productId } }),
+    db.bomItem.findMany({ where: { productId }, include: { component: true } }),
+  ]);
+  const cases = bottles / product.bottlesPerCase;
+  return bom.map((b) => ({
+    componentId: b.componentId,
+    name: b.component.name,
+    unit: b.component.unit,
+    needed: b.per === "CASE" ? b.qty * cases : b.qty * bottles,
+  }));
 }

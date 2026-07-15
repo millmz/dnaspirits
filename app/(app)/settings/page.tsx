@@ -51,7 +51,8 @@ export default async function SettingsPage() {
               </Field>
               <Field label="Role">
                 <select name="role" className={inputCls}>
-                  <option value="MEMBER">Member</option>
+                  <option value="MEMBER">Member (full operations)</option>
+                  <option value="BOOKKEEPER">Bookkeeper (finance only)</option>
                   <option value="ADMIN">Admin</option>
                 </select>
               </Field>

@@ -52,3 +52,10 @@ export async function requireAdmin() {
   if (user.role !== "ADMIN") redirect("/");
   return user;
 }
+
+/** Operations pages: bookkeepers are scoped to Finance only. */
+export async function requireOps() {
+  const user = await requireUser();
+  if (user.role === "BOOKKEEPER") redirect("/accounting");
+  return user;
+}

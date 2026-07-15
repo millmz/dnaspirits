@@ -14,28 +14,113 @@ model User {
   email        String   @unique
   name         String
   passwordHash String
-  role         String   @default("MEMBER") // ADMIN | MEMBER
+  role         String   @default("MEMBER") // ADMIN | MEMBER | BOOKKEEPER
   createdAt    DateTime @default(now())
 }
 
-// ---------- Supply chain ----------
+// ---------- Products & BOM ----------
 
 model Product {
   id             String  @id @default(cuid())
   sku            String  @unique
   name           String
+  tier           String  @default("BLANCO") // BLANCO | REPOSADO | ANEJO | OTHER
   sizeMl         Int     @default(750)
   abv            Float   @default(40)
   bottlesPerCase Int     @default(6)
-  caseCostCents  Int     @default(0) // fully-loaded production cost per case (COGS)
-  casePriceCents Int     @default(0) // default wholesale price per case to distributors
+  caseCostCents  Int     @default(0) // fully-loaded production cost per case
+  exWorksCents   Int     @default(0) // ex-works price per case to the importer
   active         Boolean @default(true)
 
+  bomItems       BomItem[]
   productionRuns ProductionRun[]
   movements      InventoryMovement[]
-  shipmentLines  ShipmentLine[]
+  saleLines      ExWorksLine[]
   depletions     Depletion[]
+  channelStocks  ChannelStock[]
 }
+
+// ---------- Suppliers, dry goods & purchasing (Mexico) ----------
+
+model Supplier {
+  id          String @id @default(cuid())
+  name        String
+  location    String @default("")
+  contactName String @default("")
+  email       String @default("")
+  phone       String @default("")
+  notes       String @default("")
+
+  components     Component[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model Component {
+  id             String    @id @default(cuid())
+  name           String
+  category       String    @default("OTHER") // GLASS | LABEL | CLOSURE | SHIPPER | CAPSULE | BULK_TEQUILA | OTHER
+  unit           String    @default("pcs") // pcs | liters
+  supplierId     String?
+  supplier       Supplier? @relation(fields: [supplierId], references: [id])
+  unitCostCents  Int       @default(0)
+  leadTimeDays   Int       @default(30)
+  reorderPoint   Float     @default(0) // flag when on-hand drops below this
+  notes          String    @default("")
+  active         Boolean   @default(true)
+
+  movements ComponentMovement[]
+  bomItems  BomItem[]
+  poLines   PurchaseOrderLine[]
+}
+
+model ComponentMovement {
+  id          String    @id @default(cuid())
+  componentId String
+  component   Component @relation(fields: [componentId], references: [id])
+  date        DateTime  @default(now())
+  type        String // PO_RECEIPT | PRODUCTION | ADJUSTMENT
+  qty         Float // signed
+  reference   String    @default("")
+  notes       String    @default("")
+}
+
+model BomItem {
+  id          String    @id @default(cuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  componentId String
+  component   Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  qty         Float // amount consumed
+  per         String    @default("BOTTLE") // BOTTLE | CASE
+
+  @@unique([productId, componentId])
+}
+
+model PurchaseOrder {
+  id           String    @id @default(cuid())
+  poNumber     String    @unique
+  supplierId   String
+  supplier     Supplier  @relation(fields: [supplierId], references: [id])
+  status       String    @default("ORDERED") // ORDERED | RECEIVED | CANCELLED
+  orderDate    DateTime
+  expectedDate DateTime?
+  receivedDate DateTime?
+  notes        String    @default("")
+
+  lines PurchaseOrderLine[]
+}
+
+model PurchaseOrderLine {
+  id            String        @id @default(cuid())
+  poId          String
+  po            PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  componentId   String
+  component     Component     @relation(fields: [componentId], references: [id])
+  qty           Float
+  unitCostCents Int           @default(0)
+}
+
+// ---------- Production & finished goods (Mexico) ----------
 
 model Warehouse {
   id       String @id @default(cuid())
@@ -44,7 +129,7 @@ model Warehouse {
 
   movements InventoryMovement[]
   runs      ProductionRun[]
-  shipments Shipment[]
+  sales     ExWorksSale[]
 }
 
 model ProductionRun {
@@ -74,55 +159,84 @@ model InventoryMovement {
   product         Product        @relation(fields: [productId], references: [id])
   warehouseId     String
   warehouse       Warehouse      @relation(fields: [warehouseId], references: [id])
-  type            String // PRODUCTION | SHIPMENT | TRANSFER_IN | TRANSFER_OUT | ADJUSTMENT | SAMPLES
-  bottles         Int // signed: positive adds stock, negative removes
+  type            String // PRODUCTION | EX_WORKS_SALE | ADJUSTMENT | SAMPLES
+  bottles         Int // signed
   productionRunId String?
   productionRun   ProductionRun? @relation(fields: [productionRunId], references: [id])
-  shipmentId      String?
-  shipment        Shipment?      @relation(fields: [shipmentId], references: [id])
+  saleId          String?
+  sale            ExWorksSale?   @relation(fields: [saleId], references: [id])
   notes           String         @default("")
 }
 
-// ---------- Distribution ----------
+// ---------- Market: importer, distributors, sales, channel ----------
 
-model Distributor {
+model Importer {
   id          String @id @default(cuid())
   name        String
-  market      String @default("") // state / region
+  country     String @default("USA")
   contactName String @default("")
   email       String @default("")
   phone       String @default("")
   notes       String @default("")
 
-  shipments  Shipment[]
-  depletions Depletion[]
+  distributors  Distributor[]
+  sales         ExWorksSale[]
+  channelStocks ChannelStock[]
 }
 
-model Shipment {
-  id            String      @id @default(cuid())
-  distributorId String
-  distributor   Distributor @relation(fields: [distributorId], references: [id])
-  warehouseId   String
-  warehouse     Warehouse   @relation(fields: [warehouseId], references: [id])
-  date          DateTime
-  status        String      @default("DRAFT") // DRAFT | SHIPPED
-  invoiceNumber String      @default("")
-  invoiceStatus String      @default("UNPAID") // UNPAID | PAID
-  paidDate      DateTime?
-  notes         String      @default("")
+model Distributor {
+  id         String   @id @default(cuid())
+  importerId String
+  importer   Importer @relation(fields: [importerId], references: [id])
+  name       String
+  market     String   @default("") // state / region
+  notes      String   @default("")
 
-  lines     ShipmentLine[]
+  depletions    Depletion[]
+  channelStocks ChannelStock[]
+}
+
+model ExWorksSale {
+  id            String    @id @default(cuid())
+  importerId    String
+  importer      Importer  @relation(fields: [importerId], references: [id])
+  warehouseId   String
+  warehouse     Warehouse @relation(fields: [warehouseId], references: [id])
+  date          DateTime
+  status        String    @default("DRAFT") // DRAFT | CONFIRMED
+  invoiceNumber String    @default("")
+  invoiceStatus String    @default("UNPAID") // UNPAID | PAID
+  paidDate      DateTime?
+  notes         String    @default("")
+
+  lines     ExWorksLine[]
   movements InventoryMovement[]
 }
 
-model ShipmentLine {
-  id                String   @id @default(cuid())
-  shipmentId        String
-  shipment          Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+model ExWorksLine {
+  id                String      @id @default(cuid())
+  saleId            String
+  sale              ExWorksSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
   productId         String
-  product           Product  @relation(fields: [productId], references: [id])
+  product           Product     @relation(fields: [productId], references: [id])
   cases             Int
   pricePerCaseCents Int
+}
+
+/// Point-in-time stock reported by the importer for themselves or a distributor.
+model ChannelStock {
+  id            String       @id @default(cuid())
+  holderType    String // IMPORTER | DISTRIBUTOR
+  importerId    String?
+  importer      Importer?    @relation(fields: [importerId], references: [id])
+  distributorId String?
+  distributor   Distributor? @relation(fields: [distributorId], references: [id])
+  productId     String
+  product       Product      @relation(fields: [productId], references: [id])
+  period        String // YYYY-MM
+  cases         Float
+  source        String       @default("MANUAL") // MANUAL | IMPORT
+  createdAt     DateTime     @default(now())
 }
 
 model Depletion {
@@ -132,47 +246,54 @@ model Depletion {
   productId     String
   product       Product     @relation(fields: [productId], references: [id])
   period        String // YYYY-MM
-  accountName   String      @default("") // retail account, if known
+  accountName   String      @default("")
   accountType   String      @default("UNKNOWN") // ON_PREMISE | OFF_PREMISE | UNKNOWN
   cases         Float
   source        String      @default("MANUAL") // MANUAL | IMPORT
   createdAt     DateTime    @default(now())
 }
 
-// ---------- Accounting ----------
+// ---------- Marketing ----------
+
+model SocialPost {
+  id      String   @id @default(cuid())
+  date    DateTime
+  channel String   @default("INSTAGRAM") // INSTAGRAM | TIKTOK | YOUTUBE | EMAIL | OTHER
+  title   String
+  notes   String   @default("")
+  status  String   @default("IDEA") // IDEA | DRAFTED | SCHEDULED | POSTED
+}
+
+model Partner {
+  id        String   @id @default(cuid())
+  type      String   @default("INFLUENCER") // INFLUENCER | PRESS
+  name      String
+  handle    String   @default("")
+  platform  String   @default("") // Instagram / TikTok / publication name
+  market    String   @default("")
+  followers Int      @default(0)
+  status    String   @default("PROSPECT") // PROSPECT | CONTACTED | AGREED | SEEDED | POSTED | PASSED
+  notes     String   @default("")
+  updatedAt DateTime @updatedAt
+}
+
+// ---------- Finance ----------
 
 model Expense {
   id          String   @id @default(cuid())
   date        DateTime
   vendor      String
-  category    String // COGS | MARKETING | LOGISTICS | COMPLIANCE | G_AND_A | OTHER
+  category    String // COGS | DRY_GOODS | LOGISTICS | COMPLIANCE | MARKETING | G_AND_A | OTHER
   amountCents Int
   notes       String   @default("")
 }
 
-// ---------- Marketing ----------
-
-model Campaign {
-  id          String    @id @default(cuid())
-  name        String
-  market      String    @default("")
-  budgetCents Int       @default(0)
-  startDate   DateTime
-  endDate     DateTime?
-  status      String    @default("ACTIVE") // PLANNED | ACTIVE | COMPLETED
-  notes       String    @default("")
-
-  activities MarketingActivity[]
-}
-
-model MarketingActivity {
-  id         String    @id @default(cuid())
-  campaignId String?
-  campaign   Campaign? @relation(fields: [campaignId], references: [id])
-  date       DateTime
-  type       String    @default("EVENT") // EVENT | TASTING | DIGITAL | SPONSORSHIP | OTHER
-  name       String
-  market     String    @default("")
-  costCents  Int       @default(0)
-  notes      String    @default("")
+/// A line from the bookkeeper's QuickBooks P&L export.
+model FinancialEntry {
+  id          String   @id @default(cuid())
+  period      String // YYYY-MM
+  account     String
+  kind        String // INCOME | EXPENSE
+  amountCents Int
+  createdAt   DateTime @default(now())
 }

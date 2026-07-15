@@ -1,28 +1,26 @@
-import { requireUser } from "@/lib/auth";
+import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getStock } from "@/lib/inventory";
 import { num, dateStr } from "@/lib/format";
-import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
-import { adjustInventory, transferInventory } from "./actions";
+import { PageHeader, Card, Table, Td, Badge, TierBadge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
+import { adjustInventory } from "./actions";
 
-const MOVEMENT_TONES: Record<string, "green" | "amber" | "red" | "blue" | "gray"> = {
+const MOVEMENT_TONES: Record<string, "green" | "amber" | "blue" | "gray"> = {
   PRODUCTION: "green",
-  SHIPMENT: "blue",
-  TRANSFER_IN: "gray",
-  TRANSFER_OUT: "gray",
+  EX_WORKS_SALE: "blue",
   ADJUSTMENT: "amber",
   SAMPLES: "amber",
 };
 
 export default async function InventoryPage() {
-  await requireUser();
+  await requireOps();
   const [stock, warehouses, products, movements] = await Promise.all([
     getStock(),
     db.warehouse.findMany({ orderBy: { name: "asc" } }),
     db.product.findMany({ where: { active: true }, orderBy: { sku: "asc" } }),
     db.inventoryMovement.findMany({
       orderBy: { date: "desc" },
-      take: 30,
+      take: 25,
       include: { product: true, warehouse: true },
     }),
   ]);
@@ -32,8 +30,9 @@ export default async function InventoryPage() {
   return (
     <div>
       <PageHeader
-        title="Inventory"
-        subtitle="On-hand stock computed from the full movement ledger — production in, shipments out"
+        label="Supply Chain · Mexico"
+        title="Finished Goods"
+        subtitle="Bottled stock you own, held in Mexico until it sells ex-works to the importer. Computed from the full movement ledger."
       />
 
       <Card title="Stock on hand">
@@ -41,13 +40,14 @@ export default async function InventoryPage() {
           <EmptyState>No products yet.</EmptyState>
         ) : (
           <Table
-            headers={["SKU", "Product", ...warehouses.map((w) => w.name), "Total bottles", "Total cases"]}
-            align={["left", "left", ...warehouses.map(() => "right" as const), "right", "right"]}
+            headers={["SKU", "Product", "Tier", ...warehouses.map((w) => w.name), "Total bottles", "Total cases"]}
+            align={["left", "left", "left", ...warehouses.map(() => "right" as const), "right", "right"]}
           >
             {stock.map((s) => (
               <tr key={s.productId}>
                 <Td><span className="font-mono text-xs">{s.sku}</span></Td>
                 <Td>{s.name}</Td>
+                <Td><TierBadge tier={s.tier} /></Td>
                 {warehouses.map((w) => (
                   <Td key={w.id} right>{num(s.byWarehouse[w.id] ?? 0)}</Td>
                 ))}
@@ -89,63 +89,26 @@ export default async function InventoryPage() {
               </Field>
             </div>
             <Field label="Notes">
-              <input name="notes" placeholder="Breakage in transit / tasting samples for TX" className={inputCls} />
+              <input name="notes" placeholder="Breakage / importer samples" className={inputCls} />
             </Field>
             <button className={btnCls}>Record</button>
           </form>
         </Card>
 
-        <Card title="Transfer between warehouses">
-          <form action={transferInventory} className="space-y-3">
-            <Field label="Product">
-              <select name="productId" className={inputCls}>
-                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="From">
-                <select name="fromWarehouseId" className={inputCls}>
-                  {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select>
-              </Field>
-              <Field label="To">
-                <select name="toWarehouseId" className={inputCls}>
-                  {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select>
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Bottles">
-                <input name="bottles" type="number" required className={inputCls} />
-              </Field>
-              <Field label="Date">
-                <input name="date" type="date" defaultValue={today} className={inputCls} />
-              </Field>
-            </div>
-            <Field label="Notes">
-              <input name="notes" className={inputCls} />
-            </Field>
-            <button className={btnCls}>Transfer</button>
-          </form>
-        </Card>
-      </div>
-
-      <div className="mt-6">
         <Card title="Recent movements">
           {movements.length === 0 ? (
             <EmptyState>No movements yet. Complete a production run to add stock.</EmptyState>
           ) : (
-            <Table headers={["Date", "Product", "Warehouse", "Type", "Bottles", "Notes"]} align={["left", "left", "left", "left", "right", "left"]}>
+            <Table headers={["Date", "Product", "Type", "Bottles", "Notes"]} align={["left", "left", "left", "right", "left"]}>
               {movements.map((m) => (
                 <tr key={m.id}>
                   <Td>{dateStr(m.date)}</Td>
                   <Td>{m.product.name}</Td>
-                  <Td>{m.warehouse.name}</Td>
                   <Td><Badge tone={MOVEMENT_TONES[m.type] ?? "gray"}>{m.type.replace(/_/g, " ")}</Badge></Td>
-                  <Td right className={m.bottles < 0 ? "text-red-600" : "text-emerald-700"}>
+                  <Td right className={m.bottles < 0 ? "text-burnt" : "text-agave-deep"}>
                     {m.bottles > 0 ? `+${num(m.bottles)}` : num(m.bottles)}
                   </Td>
-                  <Td className="text-stone-500">{m.notes}</Td>
+                  <Td className="text-slate">{m.notes}</Td>
                 </tr>
               ))}
             </Table>

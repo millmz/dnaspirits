@@ -3,79 +3,84 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const sections: { label: string; items: { href: string; label: string }[] }[] = [
+const opsSections: { label: string; items: { href: string; label: string }[] }[] = [
   {
     label: "Overview",
     items: [{ href: "/", label: "Dashboard" }],
   },
   {
-    label: "Supply Chain",
+    label: "Supply Chain · MX",
     items: [
-      { href: "/inventory", label: "Inventory" },
-      { href: "/production", label: "Production Runs" },
-      { href: "/products", label: "Products" },
+      { href: "/components", label: "Dry Goods" },
+      { href: "/purchasing", label: "Purchasing" },
+      { href: "/production", label: "Production" },
+      { href: "/inventory", label: "Finished Goods" },
+      { href: "/products", label: "Products & BOM" },
     ],
   },
   {
-    label: "Distribution",
+    label: "Market · US",
     items: [
-      { href: "/distributors", label: "Distributors" },
-      { href: "/shipments", label: "Shipments" },
+      { href: "/partners", label: "Importer & Distributors" },
+      { href: "/sales", label: "Ex-Works Sales" },
+      { href: "/channel", label: "Channel Inventory" },
       { href: "/depletions", label: "Depletions" },
     ],
   },
   {
-    label: "Business",
+    label: "Marketing",
     items: [
-      { href: "/accounting", label: "Accounting" },
-      { href: "/marketing", label: "Marketing" },
+      { href: "/content", label: "Content Calendar" },
+      { href: "/influencers", label: "Influencers & PR" },
     ],
+  },
+  {
+    label: "Finance",
+    items: [{ href: "/accounting", label: "Accounting" }],
   },
 ];
 
-export function NavLinks({ isAdmin }: { isAdmin: boolean }) {
+export function NavLinks({ role }: { role: string }) {
   const pathname = usePathname();
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
+  const sections =
+    role === "BOOKKEEPER"
+      ? opsSections.filter((s) => s.label === "Finance")
+      : opsSections;
+
+  const link = (item: { href: string; label: string }) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      className={`block rounded-md px-2 py-1.5 text-sm ${
+        isActive(item.href)
+          ? "bg-agave font-medium text-cream"
+          : "text-cream/70 hover:bg-white/10 hover:text-cream"
+      }`}
+    >
+      {item.label}
+    </Link>
+  );
+
   return (
     <>
       {sections.map((section) => (
-        <div key={section.label} className="pb-2">
-          <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+        <div key={section.label} className="pb-1">
+          <div className="brand-heading px-2 pb-1 pt-3 text-[10px] font-medium tracking-widest text-blanco">
             {section.label}
           </div>
-          {section.items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`block rounded-lg px-2 py-1.5 text-sm ${
-                isActive(item.href)
-                  ? "bg-emerald-800/60 font-medium text-white"
-                  : "hover:bg-stone-800 hover:text-white"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {section.items.map(link)}
         </div>
       ))}
-      {isAdmin && (
-        <div className="pb-2">
-          <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+      {role === "ADMIN" && (
+        <div className="pb-1">
+          <div className="brand-heading px-2 pb-1 pt-3 text-[10px] font-medium tracking-widest text-blanco">
             Admin
           </div>
-          <Link
-            href="/settings"
-            className={`block rounded-lg px-2 py-1.5 text-sm ${
-              isActive("/settings")
-                ? "bg-emerald-800/60 font-medium text-white"
-                : "hover:bg-stone-800 hover:text-white"
-            }`}
-          >
-            Settings
-          </Link>
+          {link({ href: "/settings", label: "Settings" })}
         </div>
       )}
     </>
