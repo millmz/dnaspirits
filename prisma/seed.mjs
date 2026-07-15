@@ -24,7 +24,7 @@ async function main() {
   });
 
   const importer = await db.importer.create({
-    data: { name: "My Importer (rename me)", country: "USA" },
+    data: { name: "Luxury Spirits International (LSI)", country: "USA" },
   });
 
   const [blanco, repo, anejo] = await Promise.all([

@@ -5,7 +5,131 @@ import { revalidatePath } from "next/cache";
 import { parse } from "csv-parse/sync";
 import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
-import { toFloat } from "@/lib/format";
+import { toFloat, currentPeriod } from "@/lib/format";
+import { parseLsiInventory } from "@/lib/lsi-inventory";
+
+/**
+ * One-click import for LSI's monthly "Depletions and Shipments" workbook.
+ * Imports the two inventory sheets as channel stock, converting physical
+ * cases to 9L equivalents per product (a 6×750ml case is 4.5L = 0.5 nine-liter cases):
+ *   - "LSI Inventory"          → importer stock (summed across warehouses)
+ *   - "Distributor Inventory"  → per-distributor stock; distributors are
+ *     auto-created with their real names and state markets
+ * The workbook's depletion sheets are intentionally NOT imported — the
+ * commercial report is the depletion source of record (avoids double-counts).
+ * Re-uploading replaces this importer's report-sourced stock for the month.
+ */
+export async function importLsiInventory(formData: FormData) {
+  await requireOps();
+  const file = formData.get("file") as File | null;
+  const importerId = String(formData.get("importerId") ?? "");
+  if (!file || file.size === 0) redirect("/channel?err=No+file+selected");
+  if (!importerId) redirect("/channel?err=No+importer+selected");
+
+  let report;
+  try {
+    report = parseLsiInventory(Buffer.from(await file.arrayBuffer()), file.name);
+  } catch {
+    redirect("/channel?err=Could+not+parse+the+workbook");
+  }
+  const warnings = [...report.warnings];
+  const periodInput = String(formData.get("period") ?? "").trim();
+  const period = report.reportPeriod ?? (/^\d{4}-\d{2}$/.test(periodInput) ? periodInput : currentPeriod());
+
+  // product matching by tier keyword; physical → 9L conversion per product
+  const products = await db.product.findMany({ where: { active: true } });
+  const productFor = (itemName: string) => {
+    const tier =
+      /cristalino/i.test(itemName) ? "OTHER"
+      : /a[nñ]ejo/i.test(itemName) ? "ANEJO"
+      : /reposado/i.test(itemName) ? "REPOSADO"
+      : /blanco/i.test(itemName) ? "BLANCO"
+      : null;
+    return tier ? products.find((p) => p.tier === tier) : undefined;
+  };
+  const to9L = (physCases: number, p: { bottlesPerCase: number; sizeMl: number }) =>
+    (physCases * p.bottlesPerCase * p.sizeMl) / 9000;
+
+  // importer stock: sum phys cases per product across warehouses
+  const importerByProduct = new Map<string, number>();
+  for (const row of report.importerStock) {
+    const p = productFor(row.itemName);
+    if (!p) {
+      warnings.push(`LSI item "${row.itemName}" didn't match a product — skipped.`);
+      continue;
+    }
+    importerByProduct.set(p.id, (importerByProduct.get(p.id) ?? 0) + to9L(row.physCases, p));
+  }
+
+  // distributor stock: auto-create distributors by real name, sum per product
+  const existing = await db.distributor.findMany({ where: { importerId } });
+  const byName = new Map(existing.map((d) => [d.name.toLowerCase(), d.id]));
+  const distByProduct = new Map<string, number>(); // "distId|productId" -> 9L
+  for (const row of report.distributorStock) {
+    const p = productFor(row.itemName);
+    if (!p) {
+      warnings.push(`Item "${row.itemName}" didn't match a product — skipped.`);
+      continue;
+    }
+    let distId = byName.get(row.distributor.toLowerCase());
+    if (!distId) {
+      const created = await db.distributor.create({
+        data: { importerId, name: row.distributor, market: row.state },
+      });
+      distId = created.id;
+      byName.set(row.distributor.toLowerCase(), distId);
+    }
+    const key = `${distId}|${p.id}`;
+    distByProduct.set(key, (distByProduct.get(key) ?? 0) + to9L(row.physCases, p));
+  }
+
+  const distributorIds = [...byName.values()];
+  await db.$transaction([
+    db.channelStock.deleteMany({
+      where: {
+        source: "REPORT",
+        period,
+        OR: [{ importerId }, { distributorId: { in: distributorIds } }],
+      },
+    }),
+    db.channelStock.createMany({
+      data: [
+        ...[...importerByProduct.entries()].map(([productId, cases]) => ({
+          holderType: "IMPORTER",
+          importerId,
+          distributorId: null,
+          productId,
+          period,
+          cases: Math.round(cases * 100) / 100,
+          source: "REPORT",
+        })),
+        ...[...distByProduct.entries()].map(([key, cases]) => {
+          const [distributorId, productId] = key.split("|");
+          return {
+            holderType: "DISTRIBUTOR",
+            importerId: null,
+            distributorId,
+            productId,
+            period,
+            cases: Math.round(cases * 100) / 100,
+            source: "REPORT",
+          };
+        }),
+      ],
+    }),
+  ]);
+
+  revalidatePath("/channel");
+  revalidatePath("/partners");
+  revalidatePath("/");
+  const params = new URLSearchParams({
+    lsiPeriod: period,
+    lsiImporter: String(importerByProduct.size),
+    lsiDist: String(distByProduct.size),
+  });
+  if (warnings.length > 0) params.set("skipped", warnings.slice(0, 8).join(" | "));
+  redirect(`/channel?${params.toString()}`);
+}
 
 export async function createChannelStock(formData: FormData) {
   await requireOps();
