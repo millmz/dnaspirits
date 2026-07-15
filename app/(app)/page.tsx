@@ -3,6 +3,7 @@ import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getStock, getComponentStock } from "@/lib/inventory";
 import { getMarketPosition } from "@/lib/market";
+import { getOpenReceivables } from "@/lib/receivables";
 import { money, num, dateStr, currentPeriod } from "@/lib/format";
 import { Card, Stat, Table, Td, Badge, TierBadge, EmptyState, PageHeader } from "@/components/ui";
 
@@ -21,10 +22,7 @@ export default async function Dashboard() {
       db.component.findMany({ where: { active: true } }),
       getComponentStock(),
       db.depletion.aggregate({ where: { period: { gte: yearStart } }, _sum: { cases: true } }),
-      db.exWorksSale.findMany({
-        where: { status: "CONFIRMED", invoiceStatus: "UNPAID" },
-        include: { lines: true },
-      }),
+      getOpenReceivables(),
       db.exWorksSale.findMany({
         orderBy: { date: "desc" },
         take: 4,
@@ -39,10 +37,7 @@ export default async function Dashboard() {
 
   const fgCases = stock.reduce((a, s) => a + Math.floor(s.totalBottles / s.bottlesPerCase), 0);
   const channelCases = position.reduce((a, p) => a + p.channelCases, 0);
-  const receivables = unpaid.reduce(
-    (a, s) => a + s.lines.reduce((x, l) => x + l.cases * l.pricePerCaseCents, 0),
-    0
-  );
+  const receivables = unpaid.totalNetCents;
 
   const lowComponents = components.filter(
     (c) => c.reorderPoint > 0 && (componentStock.get(c.id) ?? 0) < c.reorderPoint
@@ -86,7 +81,7 @@ export default async function Dashboard() {
           label="Open receivables"
           value={money(receivables)}
           tone={receivables > 0 ? "reposado" : "ink"}
-          hint={`${unpaid.length} unpaid invoice${unpaid.length === 1 ? "" : "s"}`}
+          hint={`${unpaid.items.length} unpaid invoice${unpaid.items.length === 1 ? "" : "s"}, net of chargeback credits`}
         />
       </div>
 

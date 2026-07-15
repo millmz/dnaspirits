@@ -187,6 +187,7 @@ model Importer {
   channelStocks   ChannelStock[]
   marketSnapshots MarketSnapshot[]
   chainVolumes    ChainVolume[]
+  chargebacks     Chargeback[]
 }
 
 model Distributor {
@@ -214,8 +215,26 @@ model ExWorksSale {
   paidDate      DateTime?
   notes         String    @default("")
 
-  lines     ExWorksLine[]
-  movements InventoryMovement[]
+  lines       ExWorksLine[]
+  movements   InventoryMovement[]
+  chargebacks Chargeback[]
+}
+
+/// A cost the importer bills back to the brand (distributor promos, samples,
+/// freight, marketing). LSI settles these as credits against what they owe —
+/// linking one to an invoice reduces that invoice's collectible balance.
+model Chargeback {
+  id         String       @id @default(cuid())
+  importerId String
+  importer   Importer     @relation(fields: [importerId], references: [id])
+  saleId     String? // invoice the credit is applied against (null = unapplied)
+  sale       ExWorksSale? @relation(fields: [saleId], references: [id])
+  date       DateTime
+  category   String       @default("OTHER") // DISTRIBUTOR_PROMO | SAMPLES | FREIGHT | MARKETING | OTHER
+  amountCents Int
+  reference  String       @default("") // LSI statement / billback number
+  notes      String       @default("")
+  createdAt  DateTime     @default(now())
 }
 
 model ExWorksLine {

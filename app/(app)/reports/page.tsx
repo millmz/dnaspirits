@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireOps } from "@/lib/auth";
-import { getMonthlyKpis, ytdComparison, getSkuMix, getMarketOverview, getChainOverview } from "@/lib/kpi";
+import { getMonthlyKpis, getAnnualFinancials, ytdComparison, getSkuMix, getMarketOverview, getChainOverview } from "@/lib/kpi";
 import { getMarketPosition } from "@/lib/market";
 import { money, num } from "@/lib/format";
 import { PageHeader, Card, Stat, Table, Td, Badge, TierBadge, EmptyState, Callout } from "@/components/ui";
@@ -20,8 +20,9 @@ const growthBadge = (pct: number | null) =>
 export default async function ReportsPage() {
   await requireOps();
 
-  const [monthly, skuMix, markets, chains, position] = await Promise.all([
+  const [monthly, annualFin, skuMix, markets, chains, position] = await Promise.all([
     getMonthlyKpis(),
+    getAnnualFinancials(),
     getSkuMix(6),
     getMarketOverview(),
     getChainOverview(),
@@ -47,23 +48,31 @@ export default async function ReportsPage() {
   const revenueYtd = thisYear.reduce((a, m) => a + m.shipmentRevenueCents, 0);
   const shippedYtd = thisYear.reduce((a, m) => a + m.shipmentCases, 0);
 
-  // annual rollup across the full history
+  // annual rollup: ops data from the monthly history, QB financials from
+  // getAnnualFinancials (covers both monthly uploads and "YYYY-FY" history)
   const byYear = new Map<
     string,
     { depletions: number; shipped: number; revenue: number; qbIncome: number; qbExpense: number; hasQb: boolean }
   >();
+  const yearOf = (y: string) => {
+    let r = byYear.get(y);
+    if (!r) {
+      r = { depletions: 0, shipped: 0, revenue: 0, qbIncome: 0, qbExpense: 0, hasQb: false };
+      byYear.set(y, r);
+    }
+    return r;
+  };
   for (const m of monthly) {
-    const y = m.period.slice(0, 4);
-    const r = byYear.get(y) ?? { depletions: 0, shipped: 0, revenue: 0, qbIncome: 0, qbExpense: 0, hasQb: false };
+    const r = yearOf(m.period.slice(0, 4));
     r.depletions += m.depletionCases;
     r.shipped += m.shipmentCases;
     r.revenue += m.shipmentRevenueCents;
-    if (m.qbIncomeCents !== null || m.qbExpenseCents !== null) {
-      r.hasQb = true;
-      r.qbIncome += m.qbIncomeCents ?? 0;
-      r.qbExpense += m.qbExpenseCents ?? 0;
-    }
-    byYear.set(y, r);
+  }
+  for (const [y, fin] of annualFin) {
+    const r = yearOf(y);
+    r.hasQb = true;
+    r.qbIncome = fin.income;
+    r.qbExpense = fin.expense;
   }
   const years = [...byYear.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   const showAnnual = years.length > 1 || years.some(([, r]) => r.hasQb);

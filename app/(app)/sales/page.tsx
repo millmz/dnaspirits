@@ -1,20 +1,37 @@
 import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { money, num, dateStr } from "@/lib/format";
-import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState } from "@/components/ui";
-import { createSale, confirmSale, markPaid, deleteDraft } from "./actions";
+import { PageHeader, Card, Badge, Field, Table, Td, inputCls, btnCls, btnSecondaryCls, EmptyState } from "@/components/ui";
+import { createSale, confirmSale, markPaid, deleteDraft, createChargeback, deleteChargeback } from "./actions";
+
+const CB_CATEGORIES = [
+  ["DISTRIBUTOR_PROMO", "Distributor promo / billback"],
+  ["SAMPLES", "Samples"],
+  ["FREIGHT", "Freight"],
+  ["MARKETING", "Marketing"],
+  ["OTHER", "Other"],
+] as const;
+
+const cbLabel = (k: string) => CB_CATEGORIES.find(([c]) => c === k)?.[1] ?? k;
 
 export default async function SalesPage() {
   await requireOps();
-  const [sales, importers, warehouses, products] = await Promise.all([
+  const [sales, importers, warehouses, products, chargebacks] = await Promise.all([
     db.exWorksSale.findMany({
       orderBy: { date: "desc" },
-      include: { importer: true, warehouse: true, lines: { include: { product: true } } },
+      include: { importer: true, warehouse: true, lines: { include: { product: true } }, chargebacks: true },
     }),
     db.importer.findMany({ orderBy: { name: "asc" } }),
     db.warehouse.findMany({ orderBy: { name: "asc" } }),
     db.product.findMany({ where: { active: true }, orderBy: { sku: "asc" } }),
+    db.chargeback.findMany({
+      orderBy: { date: "desc" },
+      take: 30,
+      include: { importer: true, sale: true },
+    }),
   ]);
+
+  const openInvoices = sales.filter((s) => s.status === "CONFIRMED" && s.invoiceStatus === "UNPAID");
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -36,6 +53,7 @@ export default async function SalesPage() {
                 {sales.map((s) => {
                   const cases = s.lines.reduce((a, l) => a + l.cases, 0);
                   const value = s.lines.reduce((a, l) => a + l.cases * l.pricePerCaseCents, 0);
+                  const credits = s.chargebacks.reduce((a, c) => a + c.amountCents, 0);
                   return (
                     <div key={s.id} className="rounded-md border border-ink/10 bg-white/60 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -59,6 +77,14 @@ export default async function SalesPage() {
                         {s.invoiceNumber && ` · Invoice ${s.invoiceNumber}`}
                         {` · ex-works ${s.warehouse.name}`}
                       </div>
+                      {credits > 0 && (
+                        <div className="mt-1 text-sm">
+                          <span className="text-burnt">− {money(credits)} chargeback credits</span>
+                          {s.invoiceStatus === "UNPAID" && (
+                            <span className="ml-2 font-medium text-ink">net due {money(Math.max(0, value - credits))}</span>
+                          )}
+                        </div>
+                      )}
                       <div className="mt-3 flex gap-2">
                         {s.status === "DRAFT" && (
                           <>
@@ -129,6 +155,95 @@ export default async function SalesPage() {
             <p className="text-xs text-slate/70">
               Sales start as drafts; confirming checks finished-goods stock and posts the draw-down.
             </p>
+          </form>
+        </Card>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <Card title="Chargeback ledger">
+            {chargebacks.length === 0 ? (
+              <EmptyState>
+                No chargebacks recorded. When LSI bills back promos, samples or freight — or nets them
+                against a remittance — record them here.
+              </EmptyState>
+            ) : (
+              <Table
+                headers={["Date", "Importer", "Category", "Amount", "Applied to", "Ref", "Notes", ""]}
+                align={["left", "left", "left", "right", "left", "left", "left", "left"]}
+              >
+                {chargebacks.map((c) => (
+                  <tr key={c.id}>
+                    <Td>{dateStr(c.date)}</Td>
+                    <Td className="text-xs">{c.importer.name}</Td>
+                    <Td><Badge tone="amber">{cbLabel(c.category)}</Badge></Td>
+                    <Td right className="text-burnt">−{money(c.amountCents)}</Td>
+                    <Td className="text-xs">
+                      {c.sale
+                        ? c.sale.invoiceNumber || dateStr(c.sale.date)
+                        : <Badge>Unapplied</Badge>}
+                    </Td>
+                    <Td className="font-mono text-xs">{c.reference || "—"}</Td>
+                    <Td className="max-w-48 text-xs text-slate">{c.notes}</Td>
+                    <Td>
+                      <form action={deleteChargeback}>
+                        <input type="hidden" name="id" value={c.id} />
+                        <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
+                      </form>
+                    </Td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+            <p className="mt-3 text-xs text-slate/70">
+              Credits applied to an invoice reduce its collectible balance on this page, the dashboard and
+              Accounting. Unapplied credits sit in the ledger until you attach them to an invoice.
+            </p>
+          </Card>
+        </div>
+
+        <Card title="Record chargeback">
+          <form action={createChargeback} className="space-y-3">
+            <Field label="Importer">
+              <select name="importerId" className={inputCls}>
+                {importers.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+              </select>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Category">
+                <select name="category" className={inputCls}>
+                  {CB_CATEGORIES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                </select>
+              </Field>
+              <Field label="Date">
+                <input name="date" type="date" defaultValue={today} className={inputCls} />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Amount ($)">
+                <input name="amount" required placeholder="1250.00" className={inputCls} />
+              </Field>
+              <Field label="LSI ref #">
+                <input name="reference" placeholder="Statement / billback no." className={inputCls} />
+              </Field>
+            </div>
+            <Field label="Apply against invoice (optional)">
+              <select name="saleId" className={inputCls} defaultValue="">
+                <option value="">— leave unapplied —</option>
+                {openInvoices.map((s) => {
+                  const total = s.lines.reduce((a, l) => a + l.cases * l.pricePerCaseCents, 0);
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {s.invoiceNumber || dateStr(s.date)} · {money(total)}
+                    </option>
+                  );
+                })}
+              </select>
+            </Field>
+            <Field label="Notes">
+              <input name="notes" placeholder="e.g. Q2 NY distributor depletion allowance" className={inputCls} />
+            </Field>
+            <button className={btnCls}>Record chargeback</button>
           </form>
         </Card>
       </div>

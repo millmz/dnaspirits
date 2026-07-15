@@ -2,7 +2,16 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { money, dateStr, num } from "@/lib/format";
 import { PageHeader, Card, Stat, Table, Td, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
+import { getOpenReceivables } from "@/lib/receivables";
 import { createExpense, deleteExpense, importFinancials } from "./actions";
+
+const CB_LABELS: Record<string, string> = {
+  DISTRIBUTOR_PROMO: "Distributor promo / billback",
+  SAMPLES: "Samples",
+  FREIGHT: "Freight",
+  MARKETING: "Marketing",
+  OTHER: "Other",
+};
 
 const CATEGORIES = [
   ["COGS", "COGS / Production"],
@@ -27,18 +36,19 @@ export default async function AccountingPage({
   const year = new Date().getFullYear();
   const yearStart = new Date(`${year}-01-01`);
 
-  const [expenses, salesYtd, unpaid, financials] = await Promise.all([
+  const [expenses, salesYtd, receivables, financials, chargebacksYtd] = await Promise.all([
     db.expense.findMany({ orderBy: { date: "desc" }, take: 60 }),
     db.exWorksSale.findMany({
       where: { status: "CONFIRMED", date: { gte: yearStart } },
       include: { lines: { include: { product: true } } },
     }),
-    db.exWorksSale.findMany({
-      where: { status: "CONFIRMED", invoiceStatus: "UNPAID" },
-      include: { importer: true, lines: true },
-      orderBy: { date: "asc" },
-    }),
+    getOpenReceivables(),
     db.financialEntry.findMany(),
+    db.chargeback.groupBy({
+      by: ["category"],
+      where: { date: { gte: yearStart } },
+      _sum: { amountCents: true },
+    }),
   ]);
 
   const revenueCents = salesYtd.reduce(
@@ -49,10 +59,8 @@ export default async function AccountingPage({
     (a, s) => a + s.lines.reduce((x, l) => x + l.cases * l.product.caseCostCents, 0),
     0
   );
-  const receivablesCents = unpaid.reduce(
-    (a, s) => a + s.lines.reduce((x, l) => x + l.cases * l.pricePerCaseCents, 0),
-    0
-  );
+  const receivablesCents = receivables.totalNetCents;
+  const chargebacksTotalYtd = chargebacksYtd.reduce((a, c) => a + (c._sum.amountCents ?? 0), 0);
 
   // QuickBooks view: net by period
   const qbByPeriod = new Map<string, { income: number; expense: number }>();
@@ -91,7 +99,12 @@ export default async function AccountingPage({
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat label="Ex-works revenue · YTD" value={money(revenueCents)} tone="agave" hint="Confirmed sales to importer" />
         <Stat label="COGS · YTD" value={money(cogsCents)} hint="From product case costs" />
-        <Stat label="Open receivables" value={money(receivablesCents)} tone={receivablesCents > 0 ? "reposado" : "ink"} hint={`${unpaid.length} unpaid invoice${unpaid.length === 1 ? "" : "s"}`} />
+        <Stat
+          label="Open receivables"
+          value={money(receivablesCents)}
+          tone={receivablesCents > 0 ? "reposado" : "ink"}
+          hint={`${receivables.items.length} unpaid invoice${receivables.items.length === 1 ? "" : "s"}, net of ${money(chargebacksTotalYtd)} YTD chargebacks`}
+        />
         <Stat
           label="Gross margin · YTD"
           value={revenueCents > 0 ? `${Math.round(((revenueCents - cogsCents) / revenueCents) * 100)}%` : "—"}
@@ -102,20 +115,55 @@ export default async function AccountingPage({
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card title="Open receivables">
-            {unpaid.length === 0 ? (
+            {receivables.items.length === 0 ? (
               <EmptyState>No unpaid invoices.</EmptyState>
             ) : (
-              <Table headers={["Date", "Importer", "Invoice", "Amount"]} align={["left", "left", "left", "right"]}>
-                {unpaid.map((s) => (
-                  <tr key={s.id}>
+              <Table
+                headers={["Date", "Importer", "Invoice", "Amount", "Credits", "Net due"]}
+                align={["left", "left", "left", "right", "right", "right"]}
+              >
+                {receivables.items.map((s) => (
+                  <tr key={s.saleId}>
                     <Td>{dateStr(s.date)}</Td>
-                    <Td>{s.importer.name}</Td>
+                    <Td>{s.importerName}</Td>
                     <Td>{s.invoiceNumber || "—"}</Td>
-                    <Td right>{money(s.lines.reduce((a, l) => a + l.cases * l.pricePerCaseCents, 0))}</Td>
+                    <Td right>{money(s.totalCents)}</Td>
+                    <Td right className={s.creditsCents > 0 ? "text-burnt" : ""}>
+                      {s.creditsCents > 0 ? `−${money(s.creditsCents)}` : "—"}
+                    </Td>
+                    <Td right className="font-medium">{money(s.netDueCents)}</Td>
                   </tr>
                 ))}
               </Table>
             )}
+            <p className="mt-3 text-xs text-slate/70">
+              Credits are LSI chargebacks applied against invoices — record them on the Ex-Works Sales page.
+            </p>
+          </Card>
+
+          <Card title={`LSI chargebacks · ${year} YTD`}>
+            {chargebacksYtd.length === 0 ? (
+              <EmptyState>No chargebacks recorded this year.</EmptyState>
+            ) : (
+              <Table headers={["Category", "Amount"]} align={["left", "right"]}>
+                {chargebacksYtd
+                  .sort((a, b) => (b._sum.amountCents ?? 0) - (a._sum.amountCents ?? 0))
+                  .map((c) => (
+                    <tr key={c.category}>
+                      <Td>{CB_LABELS[c.category] ?? c.category}</Td>
+                      <Td right>{money(c._sum.amountCents ?? 0)}</Td>
+                    </tr>
+                  ))}
+                <tr>
+                  <Td className="font-medium">Total</Td>
+                  <Td right className="font-medium">{money(chargebacksTotalYtd)}</Td>
+                </tr>
+              </Table>
+            )}
+            <p className="mt-3 text-xs text-slate/70">
+              These are distribution costs settled as credits against LSI&apos;s remittances — your
+              accountants receive them itemized in the year-end export below.
+            </p>
           </Card>
 
           <Card title="QuickBooks P&L (uploaded)">
@@ -183,6 +231,24 @@ export default async function AccountingPage({
                 </p>
               </div>
             </form>
+          </Card>
+
+          <Card title="Year-end package">
+            <p className="text-sm leading-relaxed text-ink/85">
+              One CSV with everything the accountants need for a year: QB P&amp;L lines, ex-works
+              invoices with settlement status, itemized LSI chargebacks, and logged expenses.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[year, year - 1].map((y) => (
+                <a
+                  key={y}
+                  href={`/accounting/export?year=${y}`}
+                  className="rounded-md border border-agave px-3 py-1.5 text-sm font-medium text-agave-deep hover:bg-agave/10"
+                >
+                  Download {y}
+                </a>
+              ))}
+            </div>
           </Card>
 
           <Card title="Log expense">

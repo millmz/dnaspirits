@@ -93,6 +93,41 @@ export async function markPaid(formData: FormData) {
   revalidatePath("/");
 }
 
+/**
+ * Records an importer chargeback (distributor promo, samples, freight,
+ * marketing billback). Optionally applied against a specific invoice —
+ * applied credits reduce that invoice's collectible balance everywhere
+ * receivables are shown.
+ */
+export async function createChargeback(formData: FormData) {
+  await requireOps();
+  const amountCents = toCents(formData.get("amount") as string);
+  if (amountCents <= 0) return;
+  const saleId = String(formData.get("saleId") ?? "").trim();
+  await db.chargeback.create({
+    data: {
+      importerId: String(formData.get("importerId")),
+      saleId: saleId || null,
+      date: toDate(formData.get("date") as string),
+      category: String(formData.get("category") ?? "OTHER"),
+      amountCents,
+      reference: String(formData.get("reference") ?? "").trim(),
+      notes: String(formData.get("notes") ?? "").trim(),
+    },
+  });
+  revalidatePath("/sales");
+  revalidatePath("/accounting");
+  revalidatePath("/");
+}
+
+export async function deleteChargeback(formData: FormData) {
+  await requireOps();
+  await db.chargeback.delete({ where: { id: String(formData.get("id")) } });
+  revalidatePath("/sales");
+  revalidatePath("/accounting");
+  revalidatePath("/");
+}
+
 export async function deleteDraft(formData: FormData) {
   await requireOps();
   const id = String(formData.get("id"));

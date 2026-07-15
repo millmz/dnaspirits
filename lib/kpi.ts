@@ -70,12 +70,35 @@ export async function getMonthlyKpis(): Promise<MonthlyKpi[]> {
   for (const e of expenses) at(e.date.toISOString().slice(0, 7)).expenseCents += e.amountCents;
 
   for (const f of financials) {
+    // annual-only history is stored as "YYYY-FY" — it feeds the annual
+    // rollup below but must not appear as a month in trends
+    if (!/^\d{4}-\d{2}$/.test(f.period)) continue;
     const m = at(f.period);
     if (f.kind === "INCOME") m.qbIncomeCents = (m.qbIncomeCents ?? 0) + f.amountCents;
     else m.qbExpenseCents = (m.qbExpenseCents ?? 0) + f.amountCents;
   }
 
   return [...months.values()].sort((a, b) => a.period.localeCompare(b.period));
+}
+
+/**
+ * QuickBooks income/expense by calendar year, across both monthly uploads
+ * ("YYYY-MM") and annual historical loads ("YYYY-FY").
+ */
+export async function getAnnualFinancials(): Promise<
+  Map<string, { income: number; expense: number }>
+> {
+  const financials = await db.financialEntry.findMany();
+  const byYear = new Map<string, { income: number; expense: number }>();
+  for (const f of financials) {
+    const year = f.period.slice(0, 4);
+    if (!/^\d{4}$/.test(year)) continue;
+    const y = byYear.get(year) ?? { income: 0, expense: 0 };
+    if (f.kind === "INCOME") y.income += f.amountCents;
+    else y.expense += f.amountCents;
+    byYear.set(year, y);
+  }
+  return byYear;
 }
 
 /** Year-to-date depletions vs the same months last year, from the monthly rollup. */
