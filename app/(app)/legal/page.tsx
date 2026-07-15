@@ -45,7 +45,10 @@ export default async function LegalPage() {
         <Callout tone="amber">
           <span className="font-medium">Coming due:</span>{" "}
           {urgent
-            .map((r) => `${r.title} — ${dateStr(r.dueDate)} (${Math.max(0, Math.ceil((r.dueDate!.getTime() - now) / day))} days)`)
+            .map((r) => {
+              const d = Math.ceil((r.dueDate!.getTime() - now) / day);
+              return `${r.title} — ${dateStr(r.dueDate)} (${d < 0 ? `${-d} days OVERDUE` : `${d} days`})`;
+            })
             .join(" · ")}
         </Callout>
       )}

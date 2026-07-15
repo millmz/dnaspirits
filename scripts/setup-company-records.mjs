@@ -45,6 +45,12 @@ const CAP_TABLE = [
   ["Seven Shots, LLC", "ECONOMIC", 800, 45809, "Bridge", 1000000, ""],
 ];
 
+const TM_ATTORNEY =
+  "Counsel: Theodore R. Remaklus, Thompson Hine LLP, 513.352.6542, Ted.Remaklus@ThompsonHine.com.";
+const tsdr = (serial) =>
+  `https://tsdr.uspto.gov/#caseNumber=${serial}&caseSearchType=US_APPLICATION&caseType=DEFAULT&searchType=statusSearch`;
+
+// Added if a record with the same title doesn't exist yet (safe re-runs).
 const LEGAL = [
   {
     type: "DOCUMENT",
@@ -74,13 +80,95 @@ const LEGAL = [
     dueDate: new Date("2027-09-30T00:00:00Z"),
     notes: "Due every two years in the formation anniversary month (September, odd years).",
   },
+
+  // ---- trademarks (USPTO) ----
+  {
+    type: "TRADEMARK",
+    title: "DE-NADA — USPTO Serial 88231017",
+    reference: "88231017",
+    jurisdiction: "USPTO",
+    link: tsdr("88231017"),
+    notes: `Confirm registration no. and §8 (yrs 5–6) / §9 (yrs 9–10) windows via TSDR. ${TM_ATTORNEY}`,
+  },
+  {
+    type: "TRADEMARK",
+    title: "DE-NADA — USPTO Serial 88825503",
+    reference: "88825503",
+    jurisdiction: "USPTO",
+    link: tsdr("88825503"),
+    notes: `Confirm registration no. and §8 / §9 windows via TSDR. ${TM_ATTORNEY}`,
+  },
+  {
+    type: "TRADEMARK",
+    title: "DE NADA — USPTO Serial 97408994",
+    reference: "97408994",
+    jurisdiction: "USPTO",
+    link: tsdr("97408994"),
+    notes: `Confirm registration no. and §8 / §9 windows via TSDR. ${TM_ATTORNEY}`,
+  },
+  {
+    type: "TRADEMARK",
+    title: "DE NADA — USPTO Serial 98749709",
+    reference: "98749709",
+    jurisdiction: "USPTO",
+    link: tsdr("98749709"),
+    notes: `Recent filing — track prosecution via TSDR. ${TM_ATTORNEY}`,
+  },
+
+  // ---- federal permits (TTB) — no expiration, but auto-terminate on control changes ----
+  {
+    type: "PERMIT",
+    title: "TTB Basic Permit — Importer NY-I-22042",
+    reference: "NY-I-22042 (2023-IMP-01116-O)",
+    jurisdiction: "TTB (federal)",
+    executed: new Date("2023-08-12T00:00:00Z"),
+    notes:
+      "Distilled spirits/malt/wine importer. No expiration, but auto-terminates 30 days after a change in proprietorship or control — report >10% ownership changes to TTB without delay (relevant when raising).",
+  },
+  {
+    type: "PERMIT",
+    title: "TTB Basic Permit — Wholesaler NY-P-22446",
+    reference: "NY-P-22446 (2023-WHL-00150-O)",
+    jurisdiction: "TTB (federal)",
+    executed: new Date("2023-01-27T00:00:00Z"),
+    notes:
+      "Wholesaler, distilled spirits/malt/wine. Same control-change auto-termination rule as the importer permit.",
+  },
+
+  // ---- New York SLA ----
+  {
+    type: "PERMIT",
+    title: "NY SLA Importer License 0011-23-226777",
+    reference: "0011-23-226777 (legacy serial 2233040)",
+    jurisdiction: "NY SLA — Rockland County",
+    executed: new Date("2023-02-24T00:00:00Z"),
+    dueDate: new Date("2026-01-31T00:00:00Z"),
+    notes:
+      "EXPIRED 01/31/2026 on the certificate on file — confirm renewal with the SLA and update this record (mark Done and add the new license).",
+  },
+  {
+    type: "PERMIT",
+    title: "NY SLA Marketing Permit S616-23-00380",
+    reference: "S616-23-00380 (license serial 2233040)",
+    jurisdiction: "NY SLA",
+    executed: new Date("2023-09-11T00:00:00Z"),
+    dueDate: new Date("2026-09-11T00:00:00Z"),
+    notes:
+      "ABC Law §99-b(1)(k): tastings, order-taking and marketing. Must be displayed at each event. Renew before 09/11/2026.",
+  },
+
+  // ---- counsel ----
+  {
+    type: "DOCUMENT",
+    title: "Trademark counsel — Thompson Hine LLP",
+    jurisdiction: "Cincinnati, OH",
+    notes:
+      "Theodore R. Remaklus (he/him), Partner. 312 Walnut St Suite 2000, Cincinnati OH 45202. O 513.352.6542, M 513.289.9956, Ted.Remaklus@ThompsonHine.com.",
+  },
 ];
 
 async function main() {
-  const [capCount, legalCount] = await Promise.all([
-    db.capTableEntry.count(),
-    db.legalRecord.count(),
-  ]);
+  const capCount = await db.capTableEntry.count();
 
   if (capCount === 0) {
     await db.capTableEntry.createMany({
@@ -102,12 +190,21 @@ async function main() {
     console.log("setup-company: cap table already has entries — skipping.");
   }
 
-  if (legalCount === 0) {
-    await db.legalRecord.createMany({ data: LEGAL });
-    console.log(`setup-company: legal register seeded with ${LEGAL.length} records.`);
-  } else {
-    console.log("setup-company: legal register already has records — skipping.");
+  // Legal records are add-if-missing by title, so new documents can be
+  // appended in later deploys without touching records managed in the app.
+  let added = 0;
+  for (const record of LEGAL) {
+    const exists = await db.legalRecord.findFirst({ where: { title: record.title } });
+    if (!exists) {
+      await db.legalRecord.create({ data: record });
+      added++;
+    }
   }
+  console.log(
+    added > 0
+      ? `setup-company: legal register — added ${added} new record${added === 1 ? "" : "s"}.`
+      : "setup-company: legal register — up to date."
+  );
 }
 
 main()
