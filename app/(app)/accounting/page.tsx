@@ -165,18 +165,21 @@ export default async function AccountingPage({
         </div>
 
         <div className="space-y-6">
-          <Card title="Upload QuickBooks P&L (CSV)">
+          <Card title="Upload QuickBooks P&L">
             <form action={importFinancials} className="space-y-3">
-              <Field label="P&L export (.csv)">
-                <input name="file" type="file" accept=".csv,text/csv" required className={inputCls} />
+              <Field label="P&L export (.xlsx or .csv)">
+                <input name="file" type="file" accept=".xlsx,.xls,.csv,text/csv" required className={inputCls} />
               </Field>
               <button className={btnCls}>Upload</button>
               <div className="text-xs leading-relaxed text-slate/80">
-                <p className="brand-heading font-medium text-slate">Expected columns:</p>
-                <p className="mt-1 font-mono">period, account, type, amount</p>
+                <p>
+                  Upload QuickBooks&apos; <span className="font-medium">&ldquo;Profit and Loss by Month&rdquo;</span> export
+                  exactly as QB produces it (Reports → Profit and Loss → columns: Months → Export to Excel).
+                  One year or many years per file — historical years welcome.
+                </p>
                 <p className="mt-1">
-                  type = income or expense. Re-uploading a month replaces that month&apos;s entries, so corrections are safe.
-                  A live QuickBooks Online sync can replace this step later.
+                  A simple CSV with <span className="font-mono">period, account, type, amount</span> also works.
+                  Re-uploading a month replaces that month&apos;s entries, so corrections and restatements are safe.
                 </p>
               </div>
             </form>

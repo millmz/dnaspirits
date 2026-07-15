@@ -47,6 +47,27 @@ export default async function ReportsPage() {
   const revenueYtd = thisYear.reduce((a, m) => a + m.shipmentRevenueCents, 0);
   const shippedYtd = thisYear.reduce((a, m) => a + m.shipmentCases, 0);
 
+  // annual rollup across the full history
+  const byYear = new Map<
+    string,
+    { depletions: number; shipped: number; revenue: number; qbIncome: number; qbExpense: number; hasQb: boolean }
+  >();
+  for (const m of monthly) {
+    const y = m.period.slice(0, 4);
+    const r = byYear.get(y) ?? { depletions: 0, shipped: 0, revenue: 0, qbIncome: 0, qbExpense: 0, hasQb: false };
+    r.depletions += m.depletionCases;
+    r.shipped += m.shipmentCases;
+    r.revenue += m.shipmentRevenueCents;
+    if (m.qbIncomeCents !== null || m.qbExpenseCents !== null) {
+      r.hasQb = true;
+      r.qbIncome += m.qbIncomeCents ?? 0;
+      r.qbExpense += m.qbExpenseCents ?? 0;
+    }
+    byYear.set(y, r);
+  }
+  const years = [...byYear.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  const showAnnual = years.length > 1 || years.some(([, r]) => r.hasQb);
+
   return (
     <div>
       <PageHeader
@@ -143,6 +164,38 @@ export default async function ReportsPage() {
               </p>
             </Card>
           </div>
+
+          {showAnnual && (
+            <div className="mt-6">
+              <Card title="Annual view">
+                <Table
+                  headers={["Year", "Depletions", "Shipped", "Ex-works revenue", "QB income", "QB expenses", "QB net"]}
+                  align={["left", "right", "right", "right", "right", "right", "right"]}
+                >
+                  {years.map(([y, r]) => {
+                    const net = r.hasQb ? r.qbIncome - r.qbExpense : null;
+                    return (
+                      <tr key={y}>
+                        <Td className="font-medium">{y}</Td>
+                        <Td right>{r.depletions > 0 ? num(Math.round(r.depletions)) : "—"}</Td>
+                        <Td right>{r.shipped > 0 ? num(r.shipped) : "—"}</Td>
+                        <Td right>{r.revenue > 0 ? money(r.revenue) : "—"}</Td>
+                        <Td right>{r.hasQb ? money(r.qbIncome) : "—"}</Td>
+                        <Td right>{r.hasQb ? money(r.qbExpense) : "—"}</Td>
+                        <Td right className={net !== null && net < 0 ? "text-burnt" : "font-medium"}>
+                          {net === null ? "—" : money(net)}
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                </Table>
+                <p className="mt-3 text-xs text-slate/70">
+                  QB columns fill in as your bookkeeper&apos;s P&amp;L uploads land — historical years included.
+                  The current year shows year-to-date.
+                </p>
+              </Card>
+            </div>
+          )}
 
           {skuMix.products.length > 0 && (
             <div className="mt-6">
