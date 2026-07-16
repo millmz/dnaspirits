@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { requireAdmin } from "@/lib/auth";
-import { qboExchangeCode } from "@/lib/qbo";
+import { qboExchangeCode, qboRedirectUri } from "@/lib/qbo";
 
 export async function GET(req: NextRequest) {
   await requireAdmin();
@@ -18,7 +18,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/accounting?err=QuickBooks+connection+was+rejected", url));
   }
   try {
-    await qboExchangeCode(code, realmId);
+    // Same derivation as the connect route — token exchange must reuse the
+    // exact redirect_uri sent in the auth request.
+    await qboExchangeCode(code, realmId, qboRedirectUri(req));
   } catch (e) {
     console.error("qbo callback:", e);
     return NextResponse.redirect(new URL("/accounting?err=QuickBooks+token+exchange+failed", url));

@@ -18,15 +18,30 @@ const API_BASE = process.env.QBO_SANDBOX
 export const qboConfigured = () =>
   Boolean(process.env.QBO_CLIENT_ID && process.env.QBO_CLIENT_SECRET);
 
-export const qboRedirectUri = () =>
-  process.env.QBO_REDIRECT_URI ?? `${process.env.APP_URL ?? ""}/api/qbo/callback`;
+/**
+ * The OAuth redirect URI. Derived from the actual request the admin clicked
+ * from (via x-forwarded-* on Render) so it always matches the domain in the
+ * browser — never localhost. Falls back to an explicit env override, then to
+ * APP_URL. The auth request and the token exchange must use the identical
+ * value, which they do because both run on the same domain.
+ */
+export function qboRedirectUri(req?: Request): string {
+  if (process.env.QBO_REDIRECT_URI) return process.env.QBO_REDIRECT_URI;
+  if (req) {
+    const h = req.headers;
+    const proto = h.get("x-forwarded-proto") ?? "https";
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    if (host) return `${proto}://${host}/api/qbo/callback`;
+  }
+  return `${(process.env.APP_URL ?? "").replace(/\/$/, "")}/api/qbo/callback`;
+}
 
-export function qboAuthUrl(state: string): string {
+export function qboAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
     client_id: process.env.QBO_CLIENT_ID!,
     response_type: "code",
     scope: "com.intuit.quickbooks.accounting",
-    redirect_uri: qboRedirectUri(),
+    redirect_uri: redirectUri,
     state,
   });
   return `${AUTH_BASE}?${params.toString()}`;
@@ -56,7 +71,7 @@ async function storeTokens(realmId: string, t: TokenResponse) {
   await db.qboConnection.upsert({ where: { id: 1 }, create: { id: 1, ...data }, update: data });
 }
 
-export async function qboExchangeCode(code: string, realmId: string) {
+export async function qboExchangeCode(code: string, realmId: string, redirectUri: string) {
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: {
@@ -67,7 +82,7 @@ export async function qboExchangeCode(code: string, realmId: string) {
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: qboRedirectUri(),
+      redirect_uri: redirectUri,
     }),
   });
   if (!res.ok) throw new Error(`QBO token exchange failed: ${res.status} ${await res.text()}`);

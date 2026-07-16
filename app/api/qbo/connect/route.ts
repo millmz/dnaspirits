@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { randomBytes } from "crypto";
 import { requireAdmin } from "@/lib/auth";
-import { qboConfigured, qboAuthUrl } from "@/lib/qbo";
+import { qboConfigured, qboAuthUrl, qboRedirectUri } from "@/lib/qbo";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   await requireAdmin();
   if (!qboConfigured()) return new NextResponse("QBO env vars not set", { status: 400 });
 
@@ -17,5 +17,7 @@ export async function GET() {
     maxAge: 600,
     path: "/",
   });
-  return NextResponse.redirect(qboAuthUrl(state));
+  // Redirect URI is derived from the live request domain, so it matches the
+  // browser's address bar (never localhost). Register this exact URL in Intuit.
+  return NextResponse.redirect(qboAuthUrl(state, qboRedirectUri(req)));
 }
