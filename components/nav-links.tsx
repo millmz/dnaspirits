@@ -9,6 +9,7 @@ const opsSections: { label: string; items: { href: string; label: string }[] }[]
     items: [
       { href: "/", label: "Dashboard" },
       { href: "/reports", label: "Reports & KPIs" },
+      { href: "/inbox", label: "Review Inbox" },
     ],
   },
   {

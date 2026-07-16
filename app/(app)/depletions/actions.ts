@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toFloat } from "@/lib/format";
 import { parseCommercialReport } from "@/lib/commercial-report";
-import { matchProduct } from "@/lib/product-match";
+import { commitCommercialReport } from "@/lib/import-commit";
 
 /**
  * One-click import for the importer's monthly Commercial Report (.xlsx).
@@ -33,105 +33,22 @@ export async function importCommercialReport(formData: FormData) {
   } catch {
     redirect("/depletions?err=Could+not+parse+the+workbook");
   }
-  const warnings = [...report.warnings];
 
-  // --- markets → distributors (auto-create by state code) ---
-  const existing = await db.distributor.findMany({ where: { importerId } });
-  const byMarket = new Map(
-    existing.map((d) => [(d.market || d.name).toLowerCase(), d.id])
-  );
-  const markets = [...new Set(report.depletions.map((d) => d.market))];
-  for (const market of markets) {
-    if (!byMarket.has(market.toLowerCase())) {
-      const created = await db.distributor.create({
-        data: { importerId, name: market, market },
-      });
-      byMarket.set(market.toLowerCase(), created.id);
-    }
-  }
-
-  // --- variants → products by tier + bottle size ---
-  const products = await db.product.findMany({ where: { active: true } });
-  const productForVariant = new Map<string, string>();
-  for (const variant of [...new Set(report.variants.map((v) => v.variant))]) {
-    const { product, note } = matchProduct(variant, products);
-    if (product) {
-      productForVariant.set(variant, product.id);
-      if (note) warnings.push(note);
-    } else {
-      warnings.push(`Variant "${variant}" didn't match any product — skipped.`);
-    }
-  }
-
-  const periods = [...new Set(report.depletions.map((d) => d.period))];
-  const variantPeriods = [...new Set(report.variants.map((v) => v.period))];
-  const distributorIds = [...byMarket.values()];
-
-  await db.$transaction([
-    // replace report-sourced market depletions for the file's months
-    db.depletion.deleteMany({
-      where: { source: "REPORT", period: { in: periods }, distributorId: { in: distributorIds } },
-    }),
-    db.depletion.createMany({
-      data: report.depletions.map((d) => ({
-        distributorId: byMarket.get(d.market.toLowerCase())!,
-        productId: null,
-        period: d.period,
-        cases: d.cases,
-        source: "REPORT",
-      })),
-    }),
-    // replace per-SKU national depletions
-    db.skuDepletion.deleteMany({ where: { source: "REPORT", period: { in: variantPeriods } } }),
-    db.skuDepletion.createMany({
-      data: report.variants
-        .filter((v) => productForVariant.has(v.variant))
-        .map((v) => ({
-          productId: productForVariant.get(v.variant)!,
-          period: v.period,
-          cases: v.cases,
-          source: "REPORT",
-        })),
-    }),
-    // replace snapshots + chain volumes for this report month
-    db.marketSnapshot.deleteMany({ where: { importerId, period: report.reportPeriod } }),
-    db.marketSnapshot.createMany({
-      data: report.snapshots.map((s) => ({
-        importerId,
-        period: report.reportPeriod,
-        market: s.market,
-        ytdCases: s.ytdCases,
-        ytdCasesLY: s.ytdCasesLY,
-        accounts: s.accounts,
-        accountsLY: s.accountsLY,
-        velocity: s.velocity,
-      })),
-    }),
-    db.chainVolume.deleteMany({ where: { importerId, period: report.reportPeriod } }),
-    db.chainVolume.createMany({
-      data: report.chains.map((c) => ({
-        importerId,
-        period: report.reportPeriod,
-        chain: c.chain,
-        ytdCases: c.ytdCases,
-        ytdCasesLY: c.ytdCasesLY,
-      })),
-    }),
-  ]);
+  const c = await commitCommercialReport(report, importerId);
 
   revalidatePath("/depletions");
   revalidatePath("/channel");
   revalidatePath("/partners");
   revalidatePath("/");
   const params = new URLSearchParams({
-    report: report.reportPeriod,
-    months: String(periods.length),
-    records: String(report.depletions.length),
-    sku: String(report.variants.length),
-    snapshots: String(report.snapshots.length),
-    chains: String(report.chains.length),
+    report: c.reportPeriod,
+    months: String(c.months),
+    records: String(c.depletions),
+    sku: String(c.skuRows),
+    snapshots: String(c.snapshots),
+    chains: String(c.chains),
   });
-  if (warnings.length > 0) params.set("skipped", warnings.slice(0, 8).join(" | "));
+  if (c.warnings.length > 0) params.set("skipped", c.warnings.slice(0, 8).join(" | "));
   redirect(`/depletions?${params.toString()}`);
 }
 

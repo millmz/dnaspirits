@@ -369,6 +369,29 @@ model LegalRecord {
   notes        String    @default("")
 }
 
+// ---------- Ingestion inbox (staged-approval document agent) ----------
+
+/// A document uploaded (or received) for review before it touches live data.
+/// The agent parses and analyzes it, then stages the result here; an admin
+/// approves (commit runs) or rejects. The raw file is kept base64 so approval
+/// re-parses with the same canonical parser the direct-upload path uses.
+model PendingImport {
+  id         String    @id @default(cuid())
+  kind       String // COMMERCIAL_REPORT | LSI_INVENTORY | QB_PNL | UNKNOWN
+  filename   String
+  fileB64    String // raw bytes, base64
+  importerId String? // for report/inventory kinds
+  period     String    @default("")
+  summary    String    @default("") // human-readable, agent-written
+  anomalies  String    @default("[]") // JSON array of flag strings
+  proposed   String    @default("{}") // JSON preview of what will be imported
+  aiUsed     Boolean   @default(false) // whether the Claude layer enriched it
+  status     String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  result     String    @default("") // summary of what committed, after approval
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
+}
+
 // ---------- Finance ----------
 
 model Expense {
