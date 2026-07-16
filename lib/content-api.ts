@@ -1,11 +1,13 @@
+import { createHash, timingSafeEqual } from "crypto";
 import { isRateLimited, recordHit } from "./rate-limit";
 
 /**
- * Auth for the content API that an external agent (e.g. a ChatGPT brand
- * manager) calls. Deliberately scoped to CONTENT ONLY — this key can read and
- * draft social posts and nothing else. It never touches financials, the cap
- * table, depletions, customers, or any other data. A missing CONTENT_API_KEY
- * means the API is off.
+ * Auth for the content surfaces that an external agent (e.g. a ChatGPT brand
+ * manager) calls — the REST API (/api/content) and the MCP endpoint
+ * (/api/mcp/[key]). Deliberately scoped to CONTENT ONLY — this key can read
+ * and draft social posts and nothing else. It never touches financials, the
+ * cap table, depletions, customers, or any other data. A missing
+ * CONTENT_API_KEY means both surfaces are off.
  */
 
 const WINDOW_MS = 60 * 1000;
@@ -15,14 +17,20 @@ export type ApiAuth =
   | { ok: true }
   | { ok: false; status: number; message: string };
 
-export function authContentApi(req: Request): ApiAuth {
+/** Constant-time token comparison (hashes first so lengths never leak). */
+function tokenMatches(supplied: string, configured: string): boolean {
+  const a = createHash("sha256").update(supplied).digest();
+  const b = createHash("sha256").update(configured).digest();
+  return timingSafeEqual(a, b);
+}
+
+/** Validate a raw token (from a Bearer header or a URL path segment). */
+export function authContentToken(token: string): ApiAuth {
   const configured = process.env.CONTENT_API_KEY;
   if (!configured) {
     return { ok: false, status: 503, message: "Content API is not enabled (set CONTENT_API_KEY)." };
   }
-  const header = req.headers.get("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!token || token !== configured) {
+  if (!token || !tokenMatches(token, configured)) {
     return { ok: false, status: 401, message: "Invalid or missing API key." };
   }
   // rate limit per key
@@ -32,4 +40,10 @@ export function authContentApi(req: Request): ApiAuth {
   }
   recordHit(key, WINDOW_MS);
   return { ok: true };
+}
+
+export function authContentApi(req: Request): ApiAuth {
+  const header = req.headers.get("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  return authContentToken(token);
 }

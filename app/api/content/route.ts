@@ -1,33 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { authContentApi } from "@/lib/content-api";
-import { toDate } from "@/lib/format";
-
-const CHANNELS = ["INSTAGRAM", "TIKTOK", "YOUTUBE", "EMAIL", "OTHER"];
-
-const shape = (p: {
-  id: string;
-  date: Date;
-  channel: string;
-  title: string;
-  caption: string;
-  hashtags: string;
-  assetUrl: string;
-  status: string;
-  source: string;
-  approved: boolean;
-}) => ({
-  id: p.id,
-  date: p.date.toISOString().slice(0, 10),
-  channel: p.channel,
-  title: p.title,
-  caption: p.caption,
-  hashtags: p.hashtags,
-  assetUrl: p.assetUrl,
-  status: p.status,
-  source: p.source,
-  approved: p.approved,
-});
+import { listContentPosts, proposeContentPost } from "@/lib/content-service";
 
 /**
  * GET /api/content — list posts. Optional query: from, to (YYYY-MM-DD), status.
@@ -38,22 +11,12 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   const url = req.nextUrl;
-  const from = url.searchParams.get("from");
-  const to = url.searchParams.get("to");
-  const status = url.searchParams.get("status");
-  const where: Record<string, unknown> = {};
-  const dateFilter: Record<string, Date> = {};
-  if (from) dateFilter.gte = toDate(from);
-  if (to) dateFilter.lte = toDate(to);
-  if (from || to) where.date = dateFilter;
-  if (status) where.status = status.toUpperCase();
-
-  const posts = await db.socialPost.findMany({
-    where,
-    orderBy: { date: "asc" },
-    take: 200,
+  const posts = await listContentPosts({
+    from: url.searchParams.get("from"),
+    to: url.searchParams.get("to"),
+    status: url.searchParams.get("status"),
   });
-  return NextResponse.json({ posts: posts.map(shape) });
+  return NextResponse.json({ posts });
 }
 
 /**
@@ -73,28 +36,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Body must be JSON." }, { status: 400 });
   }
 
-  const title = String(body.title ?? "").trim();
-  if (!title) return NextResponse.json({ error: "title is required." }, { status: 400 });
-  const channelRaw = String(body.channel ?? "INSTAGRAM").toUpperCase();
-  const channel = CHANNELS.includes(channelRaw) ? channelRaw : "INSTAGRAM";
-
-  const created = await db.socialPost.create({
-    data: {
-      date: toDate(String(body.date ?? "")),
-      channel,
-      title,
-      caption: String(body.caption ?? "").trim(),
-      hashtags: String(body.hashtags ?? "").trim(),
-      assetUrl: String(body.assetUrl ?? "").trim(),
-      notes: String(body.notes ?? "").trim(),
-      status: "DRAFTED",
-      source: "AGENT",
-      approved: false, // pending human approval
-    },
-  });
+  const result = await proposeContentPost(body);
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
 
   return NextResponse.json(
-    { ...shape(created), message: "Draft created — pending approval in the De Nada app." },
+    { ...result.post, message: "Draft created — pending approval in the De Nada app." },
     { status: 201 }
   );
 }

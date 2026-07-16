@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { requireOps, getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
@@ -71,7 +72,11 @@ export default async function ContentPage({
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const apiEnabled = Boolean(process.env.CONTENT_API_KEY);
+  const contentKey = process.env.CONTENT_API_KEY;
+  const apiEnabled = Boolean(contentKey);
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "ops.denadatequila.com";
+  const mcpUrl = `https://${host}/api/mcp/${contentKey ?? "YOUR_CONTENT_API_KEY"}`;
 
   return (
     <div>
@@ -255,21 +260,34 @@ export default async function ContentPage({
           {me?.role === "ADMIN" && (
             <Card title="Connect your ChatGPT brand manager">
               {apiEnabled ? (
-                <div className="space-y-2 text-sm text-ink/85">
-                  <p>The content API is <span className="font-medium text-agave-deep">on</span>. In your Custom GPT → <span className="font-medium">Configure → Actions</span>:</p>
-                  <ol className="list-decimal space-y-1 pl-4 text-xs">
-                    <li>Import the schema from <span className="font-mono">/api/content/openapi.json</span> on this domain.</li>
-                    <li>Set Authentication → API Key → <span className="font-medium">Bearer</span>, and paste your <span className="font-mono">CONTENT_API_KEY</span>.</li>
-                    <li>The agent can now read the calendar and propose posts, which land above for your approval.</li>
-                  </ol>
+                <div className="space-y-3 text-sm text-ink/85">
+                  <p>The content API is <span className="font-medium text-agave-deep">on</span>.</p>
+                  <div>
+                    <p className="font-medium">ChatGPT Agent (connector / “New app”):</p>
+                    <ol className="mt-1 list-decimal space-y-1 pl-4 text-xs">
+                      <li>In the agent&apos;s connector dialog, paste this as the <span className="font-medium">MCP Server URL</span>:</li>
+                    </ol>
+                    <p className="mt-1 break-all rounded-md bg-ink/5 p-2 font-mono text-[11px]">{mcpUrl}</p>
+                    <ol className="mt-1 list-decimal space-y-1 pl-4 text-xs" start={2}>
+                      <li>Set Authentication to <span className="font-medium">No authentication</span> — the secret key is inside the URL, so treat the URL itself like a password.</li>
+                      <li>The agent gets two tools: <span className="font-mono">list_posts</span> and <span className="font-mono">propose_post</span>. Proposals land above for your approval.</li>
+                    </ol>
+                  </div>
+                  <div>
+                    <p className="font-medium">Custom GPT (Actions) instead:</p>
+                    <ol className="mt-1 list-decimal space-y-1 pl-4 text-xs">
+                      <li>Import the schema from <span className="font-mono">/api/content/openapi.json</span> on this domain.</li>
+                      <li>Set Authentication → API Key → <span className="font-medium">Bearer</span>, and paste your <span className="font-mono">CONTENT_API_KEY</span>.</li>
+                    </ol>
+                  </div>
                 </div>
               ) : (
                 <p className="text-xs leading-relaxed text-slate/80">
                   To let your ChatGPT brand manager read the calendar and propose posts, set a
                   <span className="font-mono"> CONTENT_API_KEY</span> env var (any long random string) in Render.
-                  Then add it as a Custom GPT Action using the schema at
-                  <span className="font-mono"> /api/content/openapi.json</span>. The key is scoped to content only —
-                  it can never reach financials, the cap table, or customer data.
+                  Once set, this card shows the MCP server URL to paste into your ChatGPT Agent&apos;s
+                  connector dialog. The key is scoped to content only — it can never reach financials,
+                  the cap table, or customer data.
                 </p>
               )}
             </Card>
