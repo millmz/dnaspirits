@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { requireOps } from "@/lib/auth";
+import { requireOps, getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { PageHeader, Card, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
-import { createPost, advancePost, deletePost } from "./actions";
+import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
+import { createPost, advancePost, approveProposed, deletePost } from "./actions";
 
 const CHANNELS = [
   ["INSTAGRAM", "Instagram"],
@@ -33,6 +33,7 @@ export default async function ContentPage({
   searchParams: Promise<{ month?: string }>;
 }) {
   await requireOps();
+  const me = await getCurrentUser();
   const { month } = await searchParams;
   const current = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : new Date().toISOString().slice(0, 7);
 
@@ -43,13 +44,19 @@ export default async function ContentPage({
   const next = new Date(Date.UTC(year, mon, 1)).toISOString().slice(0, 7);
   const monthName = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 
-  const posts = await db.socialPost.findMany({
-    where: { date: { gte: monthStart, lt: monthEnd } },
-    orderBy: { date: "asc" },
-  });
+  const [posts, proposed] = await Promise.all([
+    db.socialPost.findMany({
+      where: { approved: true, date: { gte: monthStart, lt: monthEnd } },
+      orderBy: { date: "asc" },
+    }),
+    db.socialPost.findMany({
+      where: { approved: false, source: "AGENT" },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   // month grid
-  const firstDow = monthStart.getUTCDay(); // 0=Sun
+  const firstDow = monthStart.getUTCDay();
   const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
   const cells: (number | null)[] = [
     ...Array(firstDow).fill(null),
@@ -64,6 +71,7 @@ export default async function ContentPage({
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  const apiEnabled = Boolean(process.env.CONTENT_API_KEY);
 
   return (
     <div>
@@ -73,7 +81,45 @@ export default async function ContentPage({
         subtitle="Plan social posts and email sends: idea → drafted → scheduled → posted. The De Nada voice: warm, host-first, never flashy."
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      {proposed.length > 0 && (
+        <Card title={`Proposed by your brand manager (${proposed.length})`}>
+          <div className="space-y-3">
+            {proposed.map((p) => (
+              <div key={p.id} className="rounded-md border border-blanco/40 bg-blanco/15 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="blue">AI proposed</Badge>
+                  <Badge>{chLabel(p.channel)}</Badge>
+                  <span className="text-xs text-slate">{p.date.toISOString().slice(0, 10)}</span>
+                  <span className="font-medium">{p.title}</span>
+                </div>
+                {p.caption && <p className="mt-2 whitespace-pre-wrap text-sm text-ink/85">{p.caption}</p>}
+                {p.hashtags && <p className="mt-1 text-xs text-agave-deep">{p.hashtags}</p>}
+                {p.assetUrl && (
+                  <a href={p.assetUrl} target="_blank" rel="noreferrer" className="mt-1 block text-xs text-agave-deep underline">
+                    {p.assetUrl}
+                  </a>
+                )}
+                {p.notes && <p className="mt-1 text-xs text-slate/80">{p.notes}</p>}
+                <div className="mt-2 flex gap-2">
+                  <form action={approveProposed}>
+                    <input type="hidden" name="id" value={p.id} />
+                    <button className={btnCls}>Approve → calendar</button>
+                  </form>
+                  <form action={deletePost}>
+                    <input type="hidden" name="id" value={p.id} />
+                    <button className={btnSecondaryCls}>Reject</button>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-slate/70">
+            Your ChatGPT brand manager drafts these through the content API. They stay here until you approve — nothing reaches the live calendar unreviewed.
+          </p>
+        </Card>
+      )}
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card>
             <div className="mb-4 flex items-center justify-between">
@@ -121,26 +167,39 @@ export default async function ContentPage({
               ) : (
                 <div className="space-y-2">
                   {posts.map((p) => (
-                    <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-md border border-ink/8 bg-white/60 px-3 py-2">
-                      <div className="w-20 text-xs text-slate">{p.date.toISOString().slice(0, 10)}</div>
-                      <Badge tone={STATUS_TONE[p.status]}>{p.status}</Badge>
-                      <Badge>{chLabel(p.channel)}</Badge>
-                      <div className="min-w-40 flex-1 text-sm font-medium">{p.title}</div>
-                      {p.notes && <div className="w-full pl-20 text-xs text-slate/80 sm:w-auto sm:flex-1 sm:pl-0">{p.notes}</div>}
-                      <div className="flex items-center gap-2">
-                        {p.status !== "POSTED" && (
-                          <form action={advancePost}>
+                    <div key={p.id} className="rounded-md border border-ink/8 bg-white/60 px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="w-20 text-xs text-slate">{p.date.toISOString().slice(0, 10)}</div>
+                        <Badge tone={STATUS_TONE[p.status]}>{p.status}</Badge>
+                        <Badge>{chLabel(p.channel)}</Badge>
+                        {p.source === "AGENT" && <Badge tone="blue">AI</Badge>}
+                        <div className="min-w-40 flex-1 text-sm font-medium">{p.title}</div>
+                        <div className="flex items-center gap-2">
+                          {p.status !== "POSTED" && (
+                            <form action={advancePost}>
+                              <input type="hidden" name="id" value={p.id} />
+                              <button className="brand-heading text-xs text-agave hover:underline">
+                                {NEXT_LABEL[p.status]}
+                              </button>
+                            </form>
+                          )}
+                          <form action={deletePost}>
                             <input type="hidden" name="id" value={p.id} />
-                            <button className="brand-heading text-xs text-agave hover:underline">
-                              {NEXT_LABEL[p.status]}
-                            </button>
+                            <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
                           </form>
-                        )}
-                        <form action={deletePost}>
-                          <input type="hidden" name="id" value={p.id} />
-                          <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
-                        </form>
+                        </div>
                       </div>
+                      {(p.caption || p.hashtags || p.assetUrl) && (
+                        <div className="mt-1 pl-20 text-xs text-slate/80">
+                          {p.caption && <p className="whitespace-pre-wrap">{p.caption}</p>}
+                          {p.hashtags && <p className="text-agave-deep">{p.hashtags}</p>}
+                          {p.assetUrl && (
+                            <a href={p.assetUrl} target="_blank" rel="noreferrer" className="text-agave-deep underline">
+                              {p.assetUrl}
+                            </a>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -149,37 +208,73 @@ export default async function ContentPage({
           </div>
         </div>
 
-        <Card title="Plan a post">
-          <form action={createPost} className="space-y-3">
-            <Field label="Working title">
-              <input name="title" required placeholder="Paloma recipe reel — backyard table" className={inputCls} />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Target date">
-                <input name="date" type="date" defaultValue={today} className={inputCls} />
+        <div className="space-y-6">
+          <Card title="Plan a post">
+            <form action={createPost} className="space-y-3">
+              <Field label="Working title">
+                <input name="title" required placeholder="Paloma recipe reel — backyard table" className={inputCls} />
               </Field>
-              <Field label="Channel">
-                <select name="channel" className={inputCls}>
-                  {CHANNELS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Target date">
+                  <input name="date" type="date" defaultValue={today} className={inputCls} />
+                </Field>
+                <Field label="Channel">
+                  <select name="channel" className={inputCls}>
+                    {CHANNELS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Status">
+                <select name="status" className={inputCls}>
+                  <option value="IDEA">Idea</option>
+                  <option value="DRAFTED">Drafted</option>
+                  <option value="SCHEDULED">Scheduled</option>
                 </select>
               </Field>
-            </div>
-            <Field label="Status">
-              <select name="status" className={inputCls}>
-                <option value="IDEA">Idea</option>
-                <option value="DRAFTED">Drafted</option>
-                <option value="SCHEDULED">Scheduled</option>
-              </select>
-            </Field>
-            <Field label="Notes / caption ideas">
-              <textarea name="notes" rows={3} className={inputCls} />
-            </Field>
-            <button className={btnCls}>Add to calendar</button>
-            <p className="text-xs text-slate/70">
-              Art direction cue from the playbook: the bottle already on the counter — food, prep, people. Something happening just outside the frame.
-            </p>
-          </form>
-        </Card>
+              <Field label="Caption">
+                <textarea name="caption" rows={3} placeholder="Full caption in the De Nada voice" className={inputCls} />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Hashtags">
+                  <input name="hashtags" placeholder="#DeNada #tequila" className={inputCls} />
+                </Field>
+                <Field label="Asset link">
+                  <input name="assetUrl" placeholder="https://…" className={inputCls} />
+                </Field>
+              </div>
+              <Field label="Art-direction notes">
+                <textarea name="notes" rows={2} className={inputCls} />
+              </Field>
+              <button className={btnCls}>Add to calendar</button>
+              <p className="text-xs text-slate/70">
+                Art direction cue: the bottle already on the counter — food, prep, people. Something happening just outside the frame.
+              </p>
+            </form>
+          </Card>
+
+          {me?.role === "ADMIN" && (
+            <Card title="Connect your ChatGPT brand manager">
+              {apiEnabled ? (
+                <div className="space-y-2 text-sm text-ink/85">
+                  <p>The content API is <span className="font-medium text-agave-deep">on</span>. In your Custom GPT → <span className="font-medium">Configure → Actions</span>:</p>
+                  <ol className="list-decimal space-y-1 pl-4 text-xs">
+                    <li>Import the schema from <span className="font-mono">/api/content/openapi.json</span> on this domain.</li>
+                    <li>Set Authentication → API Key → <span className="font-medium">Bearer</span>, and paste your <span className="font-mono">CONTENT_API_KEY</span>.</li>
+                    <li>The agent can now read the calendar and propose posts, which land above for your approval.</li>
+                  </ol>
+                </div>
+              ) : (
+                <p className="text-xs leading-relaxed text-slate/80">
+                  To let your ChatGPT brand manager read the calendar and propose posts, set a
+                  <span className="font-mono"> CONTENT_API_KEY</span> env var (any long random string) in Render.
+                  Then add it as a Custom GPT Action using the schema at
+                  <span className="font-mono"> /api/content/openapi.json</span>. The key is scoped to content only —
+                  it can never reach financials, the cap table, or customer data.
+                </p>
+              )}
+            </Card>
+          )}
+        </div>
       </div>
     </div>
   );

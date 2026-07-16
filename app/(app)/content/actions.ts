@@ -12,8 +12,13 @@ export async function createPost(formData: FormData) {
       date: toDate(formData.get("date") as string),
       channel: String(formData.get("channel") ?? "INSTAGRAM"),
       title: String(formData.get("title") ?? "").trim(),
+      caption: String(formData.get("caption") ?? "").trim(),
+      hashtags: String(formData.get("hashtags") ?? "").trim(),
+      assetUrl: String(formData.get("assetUrl") ?? "").trim(),
       notes: String(formData.get("notes") ?? "").trim(),
       status: String(formData.get("status") ?? "IDEA"),
+      source: "MANUAL",
+      approved: true,
     },
   });
   revalidatePath("/content");
@@ -27,6 +32,16 @@ export async function advancePost(formData: FormData) {
   const flow = ["IDEA", "DRAFTED", "SCHEDULED", "POSTED"];
   const next = flow[Math.min(flow.indexOf(post.status) + 1, flow.length - 1)];
   await db.socialPost.update({ where: { id }, data: { status: next } });
+  revalidatePath("/content");
+}
+
+/** Approve a post the brand-manager agent proposed — it joins the live calendar. */
+export async function approveProposed(formData: FormData) {
+  await requireOps();
+  await db.socialPost.update({
+    where: { id: String(formData.get("id")) },
+    data: { approved: true },
+  });
   revalidatePath("/content");
 }
 

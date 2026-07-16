@@ -318,12 +318,20 @@ model MarketSnapshot {
 // ---------- Marketing ----------
 
 model SocialPost {
-  id      String   @id @default(cuid())
-  date    DateTime
-  channel String   @default("INSTAGRAM") // INSTAGRAM | TIKTOK | YOUTUBE | EMAIL | OTHER
-  title   String
-  notes   String   @default("")
-  status  String   @default("IDEA") // IDEA | DRAFTED | SCHEDULED | POSTED
+  id          String   @id @default(cuid())
+  date        DateTime
+  channel     String   @default("INSTAGRAM") // INSTAGRAM | TIKTOK | YOUTUBE | EMAIL | OTHER
+  title       String
+  notes       String   @default("")
+  // publish-ready fields
+  caption     String   @default("")
+  hashtags    String   @default("")
+  assetUrl    String   @default("") // link to the image/video to post
+  status      String   @default("IDEA") // IDEA | DRAFTED | SCHEDULED | POSTED
+  // brand-manager agent integration
+  source      String   @default("MANUAL") // MANUAL | AGENT
+  approved    Boolean  @default(true) // agent drafts start false, pending review
+  createdAt   DateTime @default(now())
 }
 
 model Partner {
