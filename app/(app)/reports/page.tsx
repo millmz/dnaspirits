@@ -134,28 +134,34 @@ export default async function ReportsPage() {
             />
           </div>
 
-          <Card title="Shipments in vs depletions out">
+          <Card title="Shipments in vs depletions out (9L cases)">
             <BarChart
               groups={last12.map((m) => m.period)}
               series={[
-                { label: "Cases shipped ex-works", color: "#231F20", values: last12.map((m) => m.shipmentCases) },
-                { label: "Cases depleted at retail", color: "#018769", values: last12.map((m) => m.depletionCases) },
+                { label: "9L cases shipped ex-works", color: "#231F20", values: last12.map((m) => Math.round(m.shipment9lCases * 10) / 10) },
+                { label: "9L cases depleted at retail", color: "#018769", values: last12.map((m) => m.depletionCases) },
               ]}
             />
             <p className="mt-3 text-xs leading-relaxed text-slate/70">
-              Healthy months deplete roughly what you ship. Shipping far ahead of depletions loads the
-              channel (watch weeks of supply climb); depleting ahead of shipments drains it and a
-              reorder from your importer is coming.
+              Both series are 9L-equivalent cases, so they compare like-for-like (a physical 6×700ml case
+              is 0.47 of a 9L case). Healthy months deplete roughly what you ship. Shipping far ahead of
+              depletions loads the channel (watch weeks of supply climb); depleting ahead of shipments
+              drains it and a reorder from your importer is coming.
             </p>
           </Card>
 
           <div className="mt-6">
             <Card title="Monthly operating summary">
               <Table
-                headers={["Month", "Depletions", "Shipped", "Ex-works revenue", "Expenses", "QB net", "Channel stock"]}
-                align={["left", "right", "right", "right", "right", "right", "right"]}
+                headers={["Month", "Depletions", "MoM", "Shipped", "Revenue", "Trade spend", "Expenses", "QB net", "Channel"]}
+                align={["left", "right", "right", "right", "right", "right", "right", "right", "right"]}
               >
-                {[...last12].reverse().map((m) => {
+                {[...last12].reverse().map((m, idx, arr) => {
+                  const prev = arr[idx + 1]; // reversed → next entry is the prior month
+                  const mom =
+                    prev && prev.depletionCases > 0 && m.depletionCases > 0
+                      ? ((m.depletionCases - prev.depletionCases) / prev.depletionCases) * 100
+                      : null;
                   const qbNet =
                     m.qbIncomeCents === null && m.qbExpenseCents === null
                       ? null
@@ -164,8 +170,14 @@ export default async function ReportsPage() {
                     <tr key={m.period}>
                       <Td className="font-medium">{m.period}</Td>
                       <Td right>{m.depletionCases > 0 ? num(Math.round(m.depletionCases)) : "—"}</Td>
+                      <Td right className={mom === null ? "" : mom >= 0 ? "text-agave-deep" : "text-burnt"}>
+                        {mom === null ? "—" : `${mom >= 0 ? "+" : ""}${Math.round(mom)}%`}
+                      </Td>
                       <Td right>{m.shipmentCases > 0 ? num(m.shipmentCases) : "—"}</Td>
                       <Td right>{m.shipmentRevenueCents > 0 ? money(m.shipmentRevenueCents) : "—"}</Td>
+                      <Td right className={m.chargebackCents > 0 ? "text-burnt" : ""}>
+                        {m.chargebackCents > 0 ? `−${money(m.chargebackCents)}` : "—"}
+                      </Td>
                       <Td right>{m.expenseCents > 0 ? money(m.expenseCents) : "—"}</Td>
                       <Td right className={qbNet !== null && qbNet < 0 ? "text-burnt" : ""}>
                         {qbNet === null ? "—" : money(qbNet)}
@@ -177,8 +189,8 @@ export default async function ReportsPage() {
               </Table>
               <p className="mt-3 text-xs text-slate/70">
                 Depletions and channel stock come from your importer&apos;s reports; shipped cases and revenue
-                from confirmed ex-works sales; QB net from your bookkeeper&apos;s monthly P&amp;L upload. A dash
-                means that source hasn&apos;t been uploaded for the month yet.
+                from confirmed ex-works sales; trade spend is LSI chargebacks dated that month; QB net from
+                the monthly P&amp;L upload. A dash means that source hasn&apos;t been uploaded yet.
               </p>
             </Card>
           </div>

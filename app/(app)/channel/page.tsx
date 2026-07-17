@@ -186,7 +186,7 @@ export default async function ChannelPage({
                 <Field label="Period (YYYY-MM)">
                   <input name="period" defaultValue={currentPeriod()} required className={inputCls} />
                 </Field>
-                <Field label="Cases on hand">
+                <Field label="Cases on hand (9L equivalents)">
                   <input name="cases" required placeholder="120" className={inputCls} />
                 </Field>
               </div>

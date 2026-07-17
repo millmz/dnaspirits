@@ -83,13 +83,13 @@ export default async function InvestorPage() {
 
       <section className="mt-6">
         <div className="brand-heading mb-2 text-xs font-medium tracking-widest text-slate">
-          SHIPMENTS IN VS DEPLETIONS OUT · LAST 12 MONTHS
+          SHIPMENTS IN VS DEPLETIONS OUT · LAST 12 MONTHS · 9L CASES
         </div>
         <BarChart
           groups={last12.map((m) => m.period)}
           series={[
-            { label: "Cases shipped", color: "#231F20", values: last12.map((m) => m.shipmentCases) },
-            { label: "Cases depleted", color: "#018769", values: last12.map((m) => m.depletionCases) },
+            { label: "9L cases shipped", color: "#231F20", values: last12.map((m) => Math.round(m.shipment9lCases * 10) / 10) },
+            { label: "9L cases depleted", color: "#018769", values: last12.map((m) => m.depletionCases) },
           ]}
           height={160}
         />

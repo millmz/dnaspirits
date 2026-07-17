@@ -37,13 +37,18 @@ export async function getMarketPosition(): Promise<MarketRow[]> {
     const channelCases = [...latestByHolder.values()].reduce((a, x) => a + x.cases, 0);
 
     // velocity: average of the 3 most recent months that have depletion data.
-    // Per-SKU rows from the commercial report ("Variants") plus any
-    // SKU-tagged manual/CSV depletion records.
+    // The commercial report's per-SKU rows (SkuDepletion) are authoritative
+    // for a month; manual/CSV Depletion rows only count for months the
+    // report does NOT cover — otherwise the same cases are counted twice.
     const byPeriod = new Map<string, number>();
-    for (const d of depletions.filter((d) => d.productId === p.id)) {
+    const reportPeriods = new Set(
+      skuDepletions.filter((d) => d.productId === p.id).map((d) => d.period)
+    );
+    for (const d of skuDepletions.filter((d) => d.productId === p.id)) {
       byPeriod.set(d.period, (byPeriod.get(d.period) ?? 0) + d.cases);
     }
-    for (const d of skuDepletions.filter((d) => d.productId === p.id)) {
+    for (const d of depletions.filter((d) => d.productId === p.id)) {
+      if (reportPeriods.has(d.period)) continue;
       byPeriod.set(d.period, (byPeriod.get(d.period) ?? 0) + d.cases);
     }
     const recent = [...byPeriod.entries()]

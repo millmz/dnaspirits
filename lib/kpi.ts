@@ -13,9 +13,11 @@ import { db } from "./db";
 export type MonthlyKpi = {
   period: string; // YYYY-MM
   depletionCases: number; // 9L cases sold through to retail
-  shipmentCases: number; // cases invoiced ex-works to the importer
+  shipmentCases: number; // physical cases invoiced ex-works to the importer
+  shipment9lCases: number; // the same shipments in 9L equivalents (comparable to depletions)
   shipmentRevenueCents: number;
   cogsCents: number; // production cost of the shipped cases
+  chargebackCents: number; // importer billbacks (trade spend) dated this month
   channelCases: number | null; // channel stock reported for this month
   expenseCents: number; // expenses logged in the app
   qbIncomeCents: number | null; // QuickBooks P&L, when uploaded
@@ -23,7 +25,7 @@ export type MonthlyKpi = {
 };
 
 export async function getMonthlyKpis(): Promise<MonthlyKpi[]> {
-  const [depletions, sales, channel, expenses, financials] = await Promise.all([
+  const [depletions, sales, channel, expenses, financials, chargebacks] = await Promise.all([
     db.depletion.groupBy({ by: ["period"], _sum: { cases: true } }),
     db.exWorksSale.findMany({
       where: { status: "CONFIRMED" },
@@ -32,6 +34,7 @@ export async function getMonthlyKpis(): Promise<MonthlyKpi[]> {
     db.channelStock.groupBy({ by: ["period"], _sum: { cases: true } }),
     db.expense.findMany(),
     db.financialEntry.findMany(),
+    db.chargeback.findMany(),
   ]);
 
   const months = new Map<string, MonthlyKpi>();
@@ -42,8 +45,10 @@ export async function getMonthlyKpis(): Promise<MonthlyKpi[]> {
         period,
         depletionCases: 0,
         shipmentCases: 0,
+        shipment9lCases: 0,
         shipmentRevenueCents: 0,
         cogsCents: 0,
+        chargebackCents: 0,
         channelCases: null,
         expenseCents: 0,
         qbIncomeCents: null,
@@ -60,10 +65,15 @@ export async function getMonthlyKpis(): Promise<MonthlyKpi[]> {
     const m = at(s.date.toISOString().slice(0, 7));
     for (const l of s.lines) {
       m.shipmentCases += l.cases;
+      // 9L-equivalent so shipments can sit next to depletions honestly:
+      // a physical case is bottlesPerCase × sizeMl of liquid; 9L case = 9000ml
+      m.shipment9lCases += (l.cases * l.product.bottlesPerCase * l.product.sizeMl) / 9000;
       m.shipmentRevenueCents += l.cases * l.pricePerCaseCents;
       m.cogsCents += l.cases * l.product.caseCostCents;
     }
   }
+
+  for (const c of chargebacks) at(c.date.toISOString().slice(0, 7)).chargebackCents += c.amountCents;
 
   for (const c of channel) at(c.period).channelCases = c._sum.cases ?? 0;
 

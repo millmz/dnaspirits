@@ -63,6 +63,10 @@ export default async function AccountingPage({
   );
   const receivablesCents = receivables.totalNetCents;
   const chargebacksTotalYtd = chargebacksYtd.reduce((a, c) => a + (c._sum.amountCents ?? 0), 0);
+  const netRevenueCents = revenueCents - chargebacksTotalYtd; // after trade spend
+  const appliedCreditsOpen = receivables.items.reduce((a, i) => a + i.creditsCents, 0);
+  const paidPartial = receivables.items.reduce((a, i) => a + i.paidCents, 0);
+  const anyOverCredited = receivables.items.some((i) => i.overCredited);
 
   const me = await getCurrentUser();
   const qboEnabled = qboConfigured();
@@ -103,18 +107,23 @@ export default async function AccountingPage({
       {err && <Callout tone="red">{err}</Callout>}
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Ex-works revenue · YTD" value={money(revenueCents)} tone="agave" hint="Confirmed sales to importer" />
+        <Stat
+          label="Net revenue · YTD"
+          value={money(netRevenueCents)}
+          tone="agave"
+          hint={`${money(revenueCents)} gross − ${money(chargebacksTotalYtd)} trade spend (chargebacks)`}
+        />
         <Stat label="COGS · YTD" value={money(cogsCents)} hint="From product case costs" />
         <Stat
           label="Open receivables"
           value={money(receivablesCents)}
           tone={receivablesCents > 0 ? "reposado" : "ink"}
-          hint={`${receivables.items.length} unpaid invoice${receivables.items.length === 1 ? "" : "s"}, net of ${money(chargebacksTotalYtd)} YTD chargebacks`}
+          hint={`${receivables.items.length} open invoice${receivables.items.length === 1 ? "" : "s"} · net of ${money(appliedCreditsOpen)} applied credits${paidPartial > 0 ? ` + ${money(paidPartial)} partial payments` : ""}`}
         />
         <Stat
-          label="Gross margin · YTD"
-          value={revenueCents > 0 ? `${Math.round(((revenueCents - cogsCents) / revenueCents) * 100)}%` : "—"}
-          hint="Revenue − COGS, ex-works basis"
+          label="Net margin · YTD"
+          value={netRevenueCents > 0 ? `${Math.round(((netRevenueCents - cogsCents) / netRevenueCents) * 100)}%` : "—"}
+          hint="(Net revenue − COGS) ÷ net revenue — trade spend included"
         />
       </div>
 
@@ -125,25 +134,47 @@ export default async function AccountingPage({
               <EmptyState>No unpaid invoices.</EmptyState>
             ) : (
               <Table
-                headers={["Date", "Importer", "Invoice", "Amount", "Credits", "Net due"]}
-                align={["left", "left", "left", "right", "right", "right"]}
+                headers={["Date", "Invoice", "Age", "Amount", "Credits", "Paid", "Net due"]}
+                align={["left", "left", "left", "right", "right", "right", "right"]}
               >
                 {receivables.items.map((s) => (
                   <tr key={s.saleId}>
                     <Td>{dateStr(s.date)}</Td>
-                    <Td>{s.importerName}</Td>
-                    <Td>{s.invoiceNumber || "—"}</Td>
+                    <Td>{s.invoiceNumber || "—"}{s.overCredited && <Badge tone="red">over-credited</Badge>}</Td>
+                    <Td>
+                      {s.overdue
+                        ? <Badge tone="red">{s.ageDays}d overdue</Badge>
+                        : <span className="text-xs text-slate">{s.ageDays}d</span>}
+                    </Td>
                     <Td right>{money(s.totalCents)}</Td>
                     <Td right className={s.creditsCents > 0 ? "text-burnt" : ""}>
                       {s.creditsCents > 0 ? `−${money(s.creditsCents)}` : "—"}
+                    </Td>
+                    <Td right className={s.paidCents > 0 ? "text-agave-deep" : ""}>
+                      {s.paidCents > 0 ? `−${money(s.paidCents)}` : "—"}
                     </Td>
                     <Td right className="font-medium">{money(s.netDueCents)}</Td>
                   </tr>
                 ))}
               </Table>
             )}
+            {receivables.items.length > 0 && (
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat label="Current (≤30d)" value={money(receivables.aging.current)} />
+                <Stat label="31–60 days" value={money(receivables.aging.d31to60)} tone={receivables.aging.d31to60 > 0 ? "reposado" : "ink"} />
+                <Stat label="61–90 days" value={money(receivables.aging.d61to90)} tone={receivables.aging.d61to90 > 0 ? "reposado" : "ink"} />
+                <Stat label="90+ days" value={money(receivables.aging.d90plus)} tone={receivables.aging.d90plus > 0 ? "burnt" : "ink"} />
+              </div>
+            )}
+            {anyOverCredited && (
+              <p className="mt-2 text-xs font-medium text-burnt">
+                One or more invoices have credits exceeding their total — check the chargeback ledger for a
+                mis-applied billback.
+              </p>
+            )}
             <p className="mt-3 text-xs text-slate/70">
-              Credits are LSI chargebacks applied against invoices — record them on the Ex-Works Sales page.
+              Age counts from the due date when set, else the invoice date. Credits are LSI chargebacks
+              applied against invoices; paid amounts are partial remittances recorded on Ex-Works Sales.
             </p>
           </Card>
 
