@@ -7,6 +7,7 @@ import { isVideo } from "@/lib/media";
 import { createPost, advancePost, deletePost, publishNow, retryPublish, addPostMedia, removePostMedia, movePostMedia } from "./actions";
 
 const CHANNELS = [
+  ["IG_FB", "Instagram + Facebook"],
   ["INSTAGRAM", "Instagram"],
   ["FACEBOOK", "Facebook"],
   ["TIKTOK", "TikTok"],
@@ -14,6 +15,8 @@ const CHANNELS = [
   ["EMAIL", "Email"],
   ["OTHER", "Other"],
 ] as const;
+
+const META_CHANNELS = ["INSTAGRAM", "FACEBOOK", "IG_FB"];
 
 const chLabel = (k: string) => CHANNELS.find(([c]) => c === k)?.[1] ?? k;
 
@@ -194,14 +197,18 @@ export default async function ContentPage({
                         <Badge>{chLabel(p.channel)}</Badge>
                         {p.items.length > 1 && <Badge tone="blue">Carousel · {p.items.length}</Badge>}
                         {p.autoPublish && p.status === "SCHEDULED" && !p.publishError && (
-                          <Badge tone="amber">{p.igCreationId ? "Processing…" : "Auto-post armed"}</Badge>
+                          <Badge tone="amber">{p.igCreationId || p.igChildIds ? "Processing…" : "Auto-post armed"}</Badge>
                         )}
-                        {(p.igMediaId || p.fbPostId) && <Badge tone="green">Live on {p.igMediaId ? "IG" : "FB"}</Badge>}
+                        {(p.igMediaId || p.fbPostId) && (
+                          <Badge tone="green">
+                            Live on {[p.igMediaId && "IG", p.fbPostId && "FB"].filter(Boolean).join(" + ")}
+                          </Badge>
+                        )}
                         <div className="min-w-40 flex-1 text-sm font-medium">{p.title}</div>
                         <div className="flex items-center gap-2">
                           {metaOn &&
                             p.status !== "POSTED" &&
-                            (p.channel === "INSTAGRAM" || p.channel === "FACEBOOK") &&
+                            META_CHANNELS.includes(p.channel) &&
                             !p.publishError && (
                               <form action={publishNow}>
                                 <input type="hidden" name="id" value={p.id} />
@@ -321,7 +328,7 @@ export default async function ContentPage({
                   />
                 </Field>
                 <Field label="Channel">
-                  <select name="channel" className={inputCls}>
+                  <select name="channel" className={inputCls} defaultValue={ig && fb ? "IG_FB" : "INSTAGRAM"}>
                     {CHANNELS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
                   </select>
                 </Field>

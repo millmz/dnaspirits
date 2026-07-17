@@ -76,6 +76,7 @@ type PostForPublish = {
   hashtags: string;
   igChildIds: string;
   igCreationId: string;
+  fbPostId: string;
   items: MediaItem[];
   assetUrl: string;
 };
@@ -119,6 +120,20 @@ async function markPosted(postId: string, data: Record<string, unknown>) {
 export async function publishStep(p: PostForPublish): Promise<boolean> {
   if (p.channel === "INSTAGRAM") return publishInstagram(p);
   if (p.channel === "FACEBOOK") return publishFacebook(p);
+  if (p.channel === "IG_FB") {
+    // Cross-post: Facebook first (one synchronous call), then the async
+    // Instagram flow. POSTED only lands when Instagram finishes — and a
+    // retry after an IG failure skips the already-published FB half.
+    if (!igConfigured() || !fbConfigured()) {
+      throw new Error("Posting to both platforms needs Instagram AND Facebook connected.");
+    }
+    if (!p.fbPostId) {
+      const fbId = await publishFacebookRaw(p);
+      await db.socialPost.update({ where: { id: p.id }, data: { fbPostId: fbId } });
+      p = { ...p, fbPostId: fbId };
+    }
+    return publishInstagram(p);
+  }
   throw new Error(`Auto-publish supports Instagram and Facebook, not ${p.channel}.`);
 }
 
@@ -209,7 +224,8 @@ async function publishInstagram(p: PostForPublish): Promise<boolean> {
   return publishInstagram({ ...p, igChildIds: childIds.join(","), igCreationId: "" });
 }
 
-async function publishFacebook(p: PostForPublish): Promise<boolean> {
+/** Publish to the Facebook Page and return the post id (no status change). */
+async function publishFacebookRaw(p: PostForPublish): Promise<string> {
   if (!fbConfigured()) throw new Error("Facebook is not connected (set META_ACCESS_TOKEN and META_FB_PAGE_ID).");
   const page = process.env.META_FB_PAGE_ID!;
   const message = fullCaption(p);
@@ -243,7 +259,11 @@ async function publishFacebook(p: PostForPublish): Promise<boolean> {
     result = await graph(`/${page}/feed`, params, "POST");
   }
 
-  const fbId = String(result.post_id ?? result.id ?? "");
+  return String(result.post_id ?? result.id ?? "");
+}
+
+async function publishFacebook(p: PostForPublish): Promise<boolean> {
+  const fbId = await publishFacebookRaw(p);
   await markPosted(p.id, { fbPostId: fbId });
   return true;
 }
@@ -260,7 +280,7 @@ export async function runPublisherTick(): Promise<void> {
       status: "SCHEDULED",
       date: { lte: new Date() },
       publishError: "",
-      channel: { in: ["INSTAGRAM", "FACEBOOK"] },
+      channel: { in: ["INSTAGRAM", "FACEBOOK", "IG_FB"] },
     },
     include: { items: true },
     take: 10,
