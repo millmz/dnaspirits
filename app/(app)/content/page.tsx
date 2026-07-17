@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { igConfigured, fbConfigured, appBaseUrl } from "@/lib/meta";
 import { isVideo } from "@/lib/media";
-import { createPost, editPost, advancePost, deletePost, publishNow, retryPublish, addPostMedia, removePostMedia, movePostMedia } from "./actions";
+import { editPost, advancePost, deletePost, publishNow, retryPublish, removePostMedia, movePostMedia } from "./actions";
+import { PostComposer, AddMedia } from "@/components/post-composer";
 
 const CHANNELS = [
   ["IG_FB", "Instagram + Facebook"],
@@ -260,7 +261,7 @@ export default async function ContentPage({
                           </form>
                         </div>
                       </div>
-                      {p.items.length > 0 && (
+                      {(p.items.length > 0 || p.status !== "POSTED") && (
                         <div className="mt-2 flex flex-wrap items-end gap-2 sm:pl-20">
                           {p.items.map((it, idx) => (
                             <div key={it.id} className="group relative">
@@ -301,17 +302,7 @@ export default async function ContentPage({
                             </div>
                           ))}
                           {p.status !== "POSTED" && p.items.length < 10 && (
-                            <form action={addPostMedia} className="flex flex-col items-start gap-1">
-                              <input type="hidden" name="id" value={p.id} />
-                              <input
-                                name="media"
-                                type="file"
-                                multiple
-                                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
-                                className="w-40 text-[10px] text-slate/70 file:mr-1 file:rounded-sm file:border-0 file:bg-ink/8 file:px-1.5 file:py-0.5 file:text-[10px]"
-                              />
-                              <button className="brand-heading text-[10px] text-agave hover:underline">+ Add to carousel</button>
-                            </form>
+                            <AddMedia postId={p.id} room={10 - p.items.length} />
                           )}
                         </div>
                       )}
@@ -345,13 +336,14 @@ export default async function ContentPage({
 
         <div id="plan" className="scroll-mt-20 space-y-6">
           <Card title={editingPost ? `Edit “${editingPost.title}”` : "Plan a post"}>
-            <form action={editingPost ? editPost : createPost} className="space-y-3">
-              {editingPost && <input type="hidden" name="id" value={editingPost.id} />}
+            {editingPost ? (
+            <form action={editPost} className="space-y-3">
+              <input type="hidden" name="id" value={editingPost.id} />
               <Field label="Working title">
                 <input
                   name="title"
                   required
-                  defaultValue={editingPost?.title}
+                  defaultValue={editingPost.title}
                   placeholder="Paloma recipe reel — backyard table"
                   className={inputCls}
                 />
@@ -361,83 +353,56 @@ export default async function ContentPage({
                   <input
                     name="datetime"
                     type="datetime-local"
-                    defaultValue={editingPost ? toLocalInput(editingPost.date) : defaultDatetime}
+                    defaultValue={toLocalInput(editingPost.date)}
                     className={inputCls}
                   />
                 </Field>
                 <Field label="Channel">
-                  <select
-                    name="channel"
-                    className={inputCls}
-                    defaultValue={editingPost ? editingPost.channel : ig && fb ? "IG_FB" : "INSTAGRAM"}
-                  >
+                  <select name="channel" className={inputCls} defaultValue={editingPost.channel}>
                     {CHANNELS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
                   </select>
                 </Field>
               </div>
-              {!editingPost && (
-              <Field label="Status">
-                <select name="status" className={inputCls} defaultValue="SCHEDULED">
-                  <option value="IDEA">Idea</option>
-                  <option value="DRAFTED">Drafted</option>
-                  <option value="SCHEDULED">Scheduled</option>
-                </select>
-              </Field>
-              )}
-              {!editingPost && (
-                <>
-                  <Field label="Photos / videos (up to 10)">
-                    <input
-                      name="media"
-                      type="file"
-                      multiple
-                      accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
-                      className={inputCls}
-                    />
-                  </Field>
-                  <p className="-mt-1 text-xs text-slate/70">
-                    Pick 2+ files for a swipe carousel — the first is the cover. You can reorder after adding.
-                  </p>
-                </>
-              )}
               <Field label="Caption">
-                <textarea name="caption" rows={3} defaultValue={editingPost?.caption} placeholder="Full caption in the De Nada voice" className={inputCls} />
+                <textarea name="caption" rows={3} defaultValue={editingPost.caption} placeholder="Full caption in the De Nada voice" className={inputCls} />
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Hashtags">
-                  <input name="hashtags" defaultValue={editingPost?.hashtags} placeholder="#DeNada #tequila" className={inputCls} />
+                  <input name="hashtags" defaultValue={editingPost.hashtags} placeholder="#DeNada #tequila" className={inputCls} />
                 </Field>
                 <Field label="External asset link (optional)">
-                  <input name="assetUrl" defaultValue={editingPost?.assetUrl} placeholder="https://…" className={inputCls} />
+                  <input name="assetUrl" defaultValue={editingPost.assetUrl} placeholder="https://…" className={inputCls} />
                 </Field>
               </div>
               <Field label="Art-direction notes">
-                <textarea name="notes" rows={2} defaultValue={editingPost?.notes} className={inputCls} />
+                <textarea name="notes" rows={2} defaultValue={editingPost.notes} className={inputCls} />
               </Field>
               {metaOn && (
                 <label className="flex items-center gap-2 text-sm text-ink/85">
                   <input
                     type="checkbox"
                     name="autoPublish"
-                    defaultChecked={editingPost ? editingPost.autoPublish : true}
+                    defaultChecked={editingPost.autoPublish}
                     className="h-4 w-4 accent-agave"
                   />
                   Auto-post to Instagram/Facebook at the scheduled time
                 </label>
               )}
               <div className="flex items-center gap-3">
-                <button className={btnCls}>{editingPost ? "Save changes" : "Add to calendar"}</button>
-                {editingPost && (
-                  <Link href={`/content?month=${current}`} className="text-sm text-slate underline-offset-2 hover:underline">
-                    Cancel
-                  </Link>
-                )}
+                <button className={btnCls}>Save changes</button>
+                <Link href={`/content?month=${current}`} className="text-sm text-slate underline-offset-2 hover:underline">
+                  Cancel
+                </Link>
               </div>
-              <p className="text-xs text-slate/70">
-                Scheduled posts with auto-post on go live within a minute of their date &amp; time.
-                Art direction cue: the bottle already on the counter — food, prep, people.
-              </p>
             </form>
+            ) : (
+              <PostComposer
+                channels={CHANNELS.map(([k, label]) => [k, label])}
+                defaultChannel={ig && fb ? "IG_FB" : "INSTAGRAM"}
+                defaultDatetime={defaultDatetime}
+                metaOn={metaOn}
+              />
+            )}
           </Card>
 
           {me?.role === "ADMIN" && (

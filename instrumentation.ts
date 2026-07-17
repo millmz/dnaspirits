@@ -15,6 +15,18 @@ export async function register() {
   Object.seal(Object.prototype);
   Object.seal(Array.prototype);
 
+  // sweep stale chunked-upload temp files (abandoned composer uploads)
+  const { cleanupUploadTmp } = await import("./lib/media");
+  const sweep = () => {
+    try {
+      cleanupUploadTmp();
+    } catch (e) {
+      console.error("upload tmp cleanup failed:", e);
+    }
+  };
+  setTimeout(sweep, 60_000).unref?.();
+  setInterval(sweep, 24 * 60 * 60 * 1000).unref?.();
+
   const { backupDatabase } = await import("./lib/backup");
   const run = async (label: string) => {
     try {

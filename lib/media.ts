@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, rmSync, createReadStream, statSync } from "fs";
+import { mkdirSync, existsSync, rmSync, createReadStream, statSync, readdirSync } from "fs";
 import { writeFile } from "fs/promises";
 import { dirname, isAbsolute, join } from "path";
 import { db } from "./db";
@@ -40,6 +40,37 @@ export function mediaDir(): string {
 
 export const isImage = (mime: string) => IMAGE_MIMES.has(mime);
 export const isVideo = (mime: string) => VIDEO_MIMES.has(mime);
+export const MAX_MEDIA_BYTES = MAX_BYTES;
+
+/** null when acceptable, else a human-readable reason. */
+export function mediaRejectReason(mime: string, bytes: number): string | null {
+  if (!IMAGE_MIMES.has(mime) && !VIDEO_MIMES.has(mime)) {
+    return `Unsupported file type ${mime || "unknown"} — use JPG, PNG, GIF, WebP, MP4 or MOV.`;
+  }
+  if (bytes > MAX_BYTES) return "File is over the 200 MB limit.";
+  return null;
+}
+
+/** Staging area for in-flight chunked uploads (same disk as final media). */
+export function uploadTmpDir(): string {
+  const dir = join(mediaDir(), "tmp");
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Remove stale .part files from abandoned uploads (older than a day). */
+export function cleanupUploadTmp() {
+  const dir = uploadTmpDir();
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (const f of readdirSync(dir)) {
+    const p = join(dir, f);
+    try {
+      if (statSync(p).mtimeMs < cutoff) rmSync(p, { force: true });
+    } catch {
+      // file vanished mid-scan — nothing to do
+    }
+  }
+}
 
 export function mediaFilePath(asset: { id: string; mime: string }): string {
   return join(mediaDir(), `${asset.id}.${EXT[asset.mime] ?? "bin"}`);

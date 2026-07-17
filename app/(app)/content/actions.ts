@@ -5,68 +5,12 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toDate } from "@/lib/format";
-import { saveMedia, deleteAsset, deletePostMediaFiles, renumberPostMedia } from "@/lib/media";
+import { deleteAsset, deletePostMediaFiles, renumberPostMedia } from "@/lib/media";
 import { runPublisherTick, runMetricsRefresh, metaConfigured } from "@/lib/meta";
 import { guardAction } from "@/lib/action-guard";
 
-const MAX_ITEMS = 10; // IG carousel limit
-
-function formFiles(formData: FormData, field: string): File[] {
-  return formData.getAll(field).filter((f): f is File => f instanceof File && f.size > 0);
-}
-
-export async function createPost(formData: FormData) {
-  await requireOps();
-  await guardAction("/content", "save the post", async () => {
-    const files = formFiles(formData, "media");
-    if (files.length > MAX_ITEMS) {
-      redirect(`/content?err=${encodeURIComponent(`Instagram allows up to ${MAX_ITEMS} items per post — you selected ${files.length}.`)}`);
-    }
-
-    const post = await db.socialPost.create({
-      data: {
-        date: toDate(formData.get("datetime") as string),
-        channel: String(formData.get("channel") ?? "INSTAGRAM"),
-        title: String(formData.get("title") ?? "").trim(),
-        caption: String(formData.get("caption") ?? "").trim(),
-        hashtags: String(formData.get("hashtags") ?? "").trim(),
-        assetUrl: String(formData.get("assetUrl") ?? "").trim(),
-        notes: String(formData.get("notes") ?? "").trim(),
-        status: String(formData.get("status") ?? "IDEA"),
-        autoPublish: formData.get("autoPublish") === "on",
-      },
-    });
-
-    for (let i = 0; i < files.length; i++) {
-      const saved = await saveMedia(files[i], post.id, i);
-      if (!saved.ok) {
-        redirect(`/content?err=${encodeURIComponent(`${files[i].name}: ${saved.error}`)}`);
-      }
-    }
-    revalidatePath("/content");
-  });
-}
-
-/** Append more photos/videos to an existing (not yet posted) post. */
-export async function addPostMedia(formData: FormData) {
-  await requireOps();
-  await guardAction("/content", "add the media", async () => {
-    const id = String(formData.get("id"));
-    const post = await db.socialPost.findUnique({ where: { id }, include: { items: true } });
-    if (!post || post.status === "POSTED") return;
-
-    const files = formFiles(formData, "media");
-    if (post.items.length + files.length > MAX_ITEMS) {
-      redirect(`/content?err=${encodeURIComponent(`Instagram allows up to ${MAX_ITEMS} items per post — this would make ${post.items.length + files.length}.`)}`);
-    }
-    let pos = post.items.length;
-    for (const f of files) {
-      const saved = await saveMedia(f, id, pos++);
-      if (!saved.ok) redirect(`/content?err=${encodeURIComponent(`${f.name}: ${saved.error}`)}`);
-    }
-    revalidatePath("/content");
-  });
-}
+// Post creation and media uploads live in /api/posts (JSON + chunked
+// uploads) so files never ride a giant all-or-nothing form post.
 
 export async function removePostMedia(formData: FormData) {
   await requireOps();
@@ -98,27 +42,29 @@ export async function movePostMedia(formData: FormData) {
 /** Edit a post's copy/schedule (anything except published posts). */
 export async function editPost(formData: FormData) {
   await requireOps();
-  const id = String(formData.get("id"));
-  const post = await db.socialPost.findUnique({ where: { id } });
-  if (!post || post.status === "POSTED") redirect("/content?err=Published+posts+can%27t+be+edited");
-  const title = String(formData.get("title") ?? "").trim();
-  if (!title) redirect(`/content?err=Title+can%27t+be+empty`);
-  await db.socialPost.update({
-    where: { id },
-    data: {
-      title,
-      date: toDate(formData.get("datetime") as string),
-      channel: String(formData.get("channel") ?? "INSTAGRAM"),
-      caption: String(formData.get("caption") ?? "").trim(),
-      hashtags: String(formData.get("hashtags") ?? "").trim(),
-      assetUrl: String(formData.get("assetUrl") ?? "").trim(),
-      notes: String(formData.get("notes") ?? "").trim(),
-      autoPublish: formData.get("autoPublish") === "on",
-      publishError: "", // edits usually fix the cause — re-arm cleanly
-    },
+  await guardAction("/content", "save the changes", async () => {
+    const id = String(formData.get("id"));
+    const post = await db.socialPost.findUnique({ where: { id } });
+    if (!post || post.status === "POSTED") redirect("/content?err=Published+posts+can%27t+be+edited");
+    const title = String(formData.get("title") ?? "").trim();
+    if (!title) redirect(`/content?err=Title+can%27t+be+empty`);
+    await db.socialPost.update({
+      where: { id },
+      data: {
+        title,
+        date: toDate(formData.get("datetime") as string),
+        channel: String(formData.get("channel") ?? "INSTAGRAM"),
+        caption: String(formData.get("caption") ?? "").trim(),
+        hashtags: String(formData.get("hashtags") ?? "").trim(),
+        assetUrl: String(formData.get("assetUrl") ?? "").trim(),
+        notes: String(formData.get("notes") ?? "").trim(),
+        autoPublish: formData.get("autoPublish") === "on",
+        publishError: "", // edits usually fix the cause — re-arm cleanly
+      },
+    });
+    revalidatePath("/content");
+    redirect("/content");
   });
-  revalidatePath("/content");
-  redirect("/content");
 }
 
 export async function advancePost(formData: FormData) {
