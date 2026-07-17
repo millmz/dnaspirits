@@ -71,6 +71,10 @@ export default async function AccountingPage({
   const me = await getCurrentUser();
   const qboEnabled = qboConfigured();
   const qbo = qboEnabled ? await qboConnection() : null;
+  const qboRefreshDays =
+    qbo?.refreshExpiresAt != null
+      ? Math.floor((qbo.refreshExpiresAt.getTime() - Date.now()) / 86_400_000)
+      : null;
 
   // QuickBooks view: net by period
   const qbByPeriod = new Map<string, { income: number; expense: number }>();
@@ -105,6 +109,13 @@ export default async function AccountingPage({
         </Callout>
       )}
       {err && <Callout tone="red">{err}</Callout>}
+      {qboRefreshDays !== null && qboRefreshDays <= 21 && (
+        <Callout tone={qboRefreshDays <= 0 ? "red" : "amber"}>
+          {qboRefreshDays <= 0
+            ? "The QuickBooks connection has expired — reconnect it below to resume syncing."
+            : `The QuickBooks connection expires in ${qboRefreshDays} day${qboRefreshDays === 1 ? "" : "s"} unless a sync runs — the weekly auto-sync normally keeps it alive, but reconnect if syncs are failing.`}
+        </Callout>
+      )}
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat

@@ -48,6 +48,26 @@ export async function register() {
   } else {
     console.warn("offsite: OFFSITE_S3_* not set — backups exist only on the local disk");
   }
+  // QuickBooks keep-alive: weekly sync refreshes the OAuth tokens so the
+  // ~100-day refresh-token window never lapses from disuse, and keeps the
+  // P&L data current without anyone clicking Sync.
+  const { qboConfigured, qboConnection, qboSyncYear } = await import("./lib/qbo");
+  if (qboConfigured()) {
+    const qboSync = async () => {
+      try {
+        if (!(await qboConnection())) return;
+        const year = new Date().getFullYear();
+        const r = await qboSyncYear(year);
+        console.log(`qbo: weekly sync pulled ${r.rows} P&L lines across ${r.periods} month(s)`);
+      } catch (e) {
+        console.error("qbo: weekly sync failed:", e);
+      }
+    };
+    setTimeout(qboSync, 3 * 60 * 1000).unref?.();
+    setInterval(qboSync, 7 * 24 * 60 * 60 * 1000).unref?.();
+    console.log("qbo: weekly auto-sync armed");
+  }
+
   const disk = diskUsage();
   if (disk && disk.usedPct >= 85) {
     console.warn(`disk: data volume ${disk.usedPct}% full — clean up or resize soon`);

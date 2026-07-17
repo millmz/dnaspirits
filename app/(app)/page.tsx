@@ -15,7 +15,8 @@ export default async function Dashboard() {
   const period = currentPeriod();
   const yearStart = `${period.slice(0, 4)}-01`;
 
-  const [stock, position, components, componentStock, ytdDep, unpaid, recentSales, recentRuns] =
+  const in90d = new Date(Date.now() + 90 * 86_400_000);
+  const [stock, position, components, componentStock, ytdDep, unpaid, recentSales, recentRuns, legalDue] =
     await Promise.all([
       getStock(),
       getMarketPosition(),
@@ -32,6 +33,10 @@ export default async function Dashboard() {
         orderBy: { startDate: "desc" },
         take: 4,
         include: { product: true },
+      }),
+      db.legalRecord.findMany({
+        where: { status: "ACTIVE", dueDate: { not: null, lte: in90d } },
+        orderBy: { dueDate: "asc" },
       }),
     ]);
 
@@ -51,6 +56,27 @@ export default async function Dashboard() {
         title="Dashboard"
         subtitle="From agave to account — the whole operation at a glance."
       />
+
+      {legalDue.length > 0 && (
+        <div className="mb-6 rounded-md border border-reposado/40 bg-reposado/10 p-4">
+          <div className="brand-heading mb-1 text-sm text-burnt">Legal & compliance deadlines</div>
+          <ul className="space-y-1 text-sm text-ink/90">
+            {legalDue.map((r) => {
+              const past = r.dueDate! < new Date();
+              return (
+                <li key={r.id}>
+                  <span className="font-medium">{r.title}</span>
+                  {r.reference && <span className="text-slate"> ({r.reference})</span>}:{" "}
+                  <span className={past ? "font-medium text-burnt" : ""}>
+                    {past ? "EXPIRED" : "due"} {dateStr(r.dueDate)}
+                  </span>{" "}
+                  — <Link href="/legal" className="text-agave-deep underline">open Legal &amp; IP</Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {(restock.length > 0 || lowComponents.length > 0) && (
         <div className="mb-6 rounded-md border border-burnt/30 bg-burnt/8 p-4">

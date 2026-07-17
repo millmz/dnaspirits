@@ -24,7 +24,7 @@ export async function createPost(formData: FormData) {
 
   const post = await db.socialPost.create({
     data: {
-      date: toDate(formData.get("date") as string),
+      date: toDate(formData.get("datetime") as string),
       channel: String(formData.get("channel") ?? "INSTAGRAM"),
       title: String(formData.get("title") ?? "").trim(),
       caption: String(formData.get("caption") ?? "").trim(),
@@ -89,6 +89,32 @@ export async function movePostMedia(formData: FormData) {
   await db.mediaAsset.update({ where: { id: items[idx].id }, data: { position: swap } });
   await db.mediaAsset.update({ where: { id: items[swap].id }, data: { position: idx } });
   revalidatePath("/content");
+}
+
+/** Edit a post's copy/schedule (anything except published posts). */
+export async function editPost(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  const post = await db.socialPost.findUnique({ where: { id } });
+  if (!post || post.status === "POSTED") redirect("/content?err=Published+posts+can%27t+be+edited");
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) redirect(`/content?err=Title+can%27t+be+empty`);
+  await db.socialPost.update({
+    where: { id },
+    data: {
+      title,
+      date: toDate(formData.get("datetime") as string),
+      channel: String(formData.get("channel") ?? "INSTAGRAM"),
+      caption: String(formData.get("caption") ?? "").trim(),
+      hashtags: String(formData.get("hashtags") ?? "").trim(),
+      assetUrl: String(formData.get("assetUrl") ?? "").trim(),
+      notes: String(formData.get("notes") ?? "").trim(),
+      autoPublish: formData.get("autoPublish") === "on",
+      publishError: "", // edits usually fix the cause — re-arm cleanly
+    },
+  });
+  revalidatePath("/content");
+  redirect("/content");
 }
 
 export async function advancePost(formData: FormData) {

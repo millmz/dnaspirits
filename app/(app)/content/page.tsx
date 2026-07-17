@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { igConfigured, fbConfigured, appBaseUrl } from "@/lib/meta";
 import { isVideo } from "@/lib/media";
-import { createPost, advancePost, deletePost, publishNow, retryPublish, addPostMedia, removePostMedia, movePostMedia } from "./actions";
+import { createPost, editPost, advancePost, deletePost, publishNow, retryPublish, addPostMedia, removePostMedia, movePostMedia } from "./actions";
 
 const CHANNELS = [
   ["IG_FB", "Instagram + Facebook"],
@@ -43,20 +43,23 @@ const DOT_TONE: Record<string, string> = {
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; day?: string; err?: string }>;
+  searchParams: Promise<{ month?: string; day?: string; edit?: string; err?: string }>;
 }) {
   await requireOps();
   const me = await getCurrentUser();
-  const { month, day, err } = await searchParams;
+  const { month, day, edit, err } = await searchParams;
   const current = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : new Date().toISOString().slice(0, 7);
   const selectedDay = /^\d{1,2}$/.test(day ?? "") ? Number(day) : null;
 
   const [year, mon] = current.split("-").map(Number);
-  const monthStart = new Date(Date.UTC(year, mon - 1, 1));
-  const monthEnd = new Date(Date.UTC(year, mon, 1));
-  const prev = new Date(Date.UTC(year, mon - 2, 1)).toISOString().slice(0, 7);
-  const next = new Date(Date.UTC(year, mon, 1)).toISOString().slice(0, 7);
-  const monthName = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  // all date math in server-local time (set TZ=America/New_York in Render so
+  // scheduling times mean Eastern) — display and grouping stay consistent
+  const monthStart = new Date(year, mon - 1, 1);
+  const monthEnd = new Date(year, mon, 1);
+  const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const prev = ym(new Date(year, mon - 2, 1));
+  const next = ym(new Date(year, mon, 1));
+  const monthName = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const posts = await db.socialPost.findMany({
     where: { date: { gte: monthStart, lt: monthEnd } },
@@ -65,8 +68,8 @@ export default async function ContentPage({
   });
 
   // month grid
-  const firstDow = monthStart.getUTCDay();
-  const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  const firstDow = monthStart.getDay();
+  const daysInMonth = new Date(year, mon, 0).getDate();
   const cells: (number | null)[] = [
     ...Array(firstDow).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
@@ -75,13 +78,26 @@ export default async function ContentPage({
 
   const byDay = new Map<number, typeof posts>();
   for (const p of posts) {
-    const d = p.date.getUTCDate();
+    const d = p.date.getDate();
     byDay.set(d, [...(byDay.get(d) ?? []), p]);
   }
 
-  const visiblePosts = selectedDay ? posts.filter((p) => p.date.getUTCDate() === selectedDay) : posts;
+  const visiblePosts = selectedDay ? posts.filter((p) => p.date.getDate() === selectedDay) : posts;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const toLocalInput = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const showWhen = (d: Date) =>
+    d.getHours() === 0 && d.getMinutes() === 0
+      ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
+        " · " +
+        d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const defaultDatetime = selectedDay
+    ? `${current}-${pad(selectedDay)}T09:00`
+    : toLocalInput(new Date(Date.now() + 60 * 60 * 1000));
+  const editingPost = edit ? await db.socialPost.findUnique({ where: { id: edit } }) : null;
+
   const ig = igConfigured();
   const fb = fbConfigured();
   const metaOn = ig || fb;
@@ -192,7 +208,7 @@ export default async function ContentPage({
                   {visiblePosts.map((p) => (
                     <div key={p.id} className="rounded-md border border-ink/8 bg-white/60 px-3 py-2">
                       <div className="flex flex-wrap items-center gap-3">
-                        <div className="w-20 text-xs text-slate">{p.date.toISOString().slice(0, 10)}</div>
+                        <div className="w-24 text-xs text-slate">{showWhen(p.date)}</div>
                         <Badge tone={STATUS_TONE[p.status]}>{p.status}</Badge>
                         <Badge>{chLabel(p.channel)}</Badge>
                         {p.items.length > 1 && <Badge tone="blue">Carousel · {p.items.length}</Badge>}
@@ -215,6 +231,21 @@ export default async function ContentPage({
                                 <button className="brand-heading px-1 py-1.5 text-xs text-agave hover:underline">Publish now</button>
                               </form>
                             )}
+                          {p.status !== "POSTED" && (
+                            <Link href={`/content?month=${current}&edit=${p.id}#plan`} className="brand-heading px-1 py-1.5 text-xs text-agave hover:underline">
+                              Edit
+                            </Link>
+                          )}
+                          {p.igPermalink && (
+                            <a href={p.igPermalink} target="_blank" rel="noreferrer" className="brand-heading px-1 py-1.5 text-xs text-agave-deep hover:underline">
+                              View on IG
+                            </a>
+                          )}
+                          {p.fbPostId && (
+                            <a href={`https://www.facebook.com/${p.fbPostId}`} target="_blank" rel="noreferrer" className="brand-heading px-1 py-1.5 text-xs text-agave-deep hover:underline">
+                              View on FB
+                            </a>
+                          )}
                           {p.status !== "POSTED" && (
                             <form action={advancePost}>
                               <input type="hidden" name="id" value={p.id} />
@@ -313,26 +344,38 @@ export default async function ContentPage({
         </div>
 
         <div id="plan" className="scroll-mt-20 space-y-6">
-          <Card title="Plan a post">
-            <form action={createPost} className="space-y-3">
+          <Card title={editingPost ? `Edit “${editingPost.title}”` : "Plan a post"}>
+            <form action={editingPost ? editPost : createPost} className="space-y-3">
+              {editingPost && <input type="hidden" name="id" value={editingPost.id} />}
               <Field label="Working title">
-                <input name="title" required placeholder="Paloma recipe reel — backyard table" className={inputCls} />
+                <input
+                  name="title"
+                  required
+                  defaultValue={editingPost?.title}
+                  placeholder="Paloma recipe reel — backyard table"
+                  className={inputCls}
+                />
               </Field>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Post date">
+                <Field label="Post date & time">
                   <input
-                    name="date"
-                    type="date"
-                    defaultValue={selectedDay ? `${current}-${String(selectedDay).padStart(2, "0")}` : today}
+                    name="datetime"
+                    type="datetime-local"
+                    defaultValue={editingPost ? toLocalInput(editingPost.date) : defaultDatetime}
                     className={inputCls}
                   />
                 </Field>
                 <Field label="Channel">
-                  <select name="channel" className={inputCls} defaultValue={ig && fb ? "IG_FB" : "INSTAGRAM"}>
+                  <select
+                    name="channel"
+                    className={inputCls}
+                    defaultValue={editingPost ? editingPost.channel : ig && fb ? "IG_FB" : "INSTAGRAM"}
+                  >
                     {CHANNELS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
                   </select>
                 </Field>
               </div>
+              {!editingPost && (
               <Field label="Status">
                 <select name="status" className={inputCls} defaultValue="SCHEDULED">
                   <option value="IDEA">Idea</option>
@@ -340,41 +383,58 @@ export default async function ContentPage({
                   <option value="SCHEDULED">Scheduled</option>
                 </select>
               </Field>
-              <Field label="Photos / videos (up to 10)">
-                <input
-                  name="media"
-                  type="file"
-                  multiple
-                  accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
-                  className={inputCls}
-                />
-              </Field>
-              <p className="-mt-1 text-xs text-slate/70">
-                Pick 2+ files for a swipe carousel — the first is the cover. You can reorder after adding.
-              </p>
+              )}
+              {!editingPost && (
+                <>
+                  <Field label="Photos / videos (up to 10)">
+                    <input
+                      name="media"
+                      type="file"
+                      multiple
+                      accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <p className="-mt-1 text-xs text-slate/70">
+                    Pick 2+ files for a swipe carousel — the first is the cover. You can reorder after adding.
+                  </p>
+                </>
+              )}
               <Field label="Caption">
-                <textarea name="caption" rows={3} placeholder="Full caption in the De Nada voice" className={inputCls} />
+                <textarea name="caption" rows={3} defaultValue={editingPost?.caption} placeholder="Full caption in the De Nada voice" className={inputCls} />
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Hashtags">
-                  <input name="hashtags" placeholder="#DeNada #tequila" className={inputCls} />
+                  <input name="hashtags" defaultValue={editingPost?.hashtags} placeholder="#DeNada #tequila" className={inputCls} />
                 </Field>
                 <Field label="External asset link (optional)">
-                  <input name="assetUrl" placeholder="https://…" className={inputCls} />
+                  <input name="assetUrl" defaultValue={editingPost?.assetUrl} placeholder="https://…" className={inputCls} />
                 </Field>
               </div>
               <Field label="Art-direction notes">
-                <textarea name="notes" rows={2} className={inputCls} />
+                <textarea name="notes" rows={2} defaultValue={editingPost?.notes} className={inputCls} />
               </Field>
               {metaOn && (
                 <label className="flex items-center gap-2 text-sm text-ink/85">
-                  <input type="checkbox" name="autoPublish" defaultChecked className="h-4 w-4 accent-agave" />
-                  Auto-post to Instagram/Facebook on the post date
+                  <input
+                    type="checkbox"
+                    name="autoPublish"
+                    defaultChecked={editingPost ? editingPost.autoPublish : true}
+                    className="h-4 w-4 accent-agave"
+                  />
+                  Auto-post to Instagram/Facebook at the scheduled time
                 </label>
               )}
-              <button className={btnCls}>Add to calendar</button>
+              <div className="flex items-center gap-3">
+                <button className={btnCls}>{editingPost ? "Save changes" : "Add to calendar"}</button>
+                {editingPost && (
+                  <Link href={`/content?month=${current}`} className="text-sm text-slate underline-offset-2 hover:underline">
+                    Cancel
+                  </Link>
+                )}
+              </div>
               <p className="text-xs text-slate/70">
-                Scheduled posts with auto-post on go live within a minute of their date.
+                Scheduled posts with auto-post on go live within a minute of their date &amp; time.
                 Art direction cue: the bottle already on the counter — food, prep, people.
               </p>
             </form>

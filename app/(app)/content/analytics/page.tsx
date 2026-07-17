@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader, Card, Stat, Table, Td, Badge, EmptyState, Callout, btnCls } from "@/components/ui";
+import { BarChart } from "@/components/charts";
 import { num } from "@/lib/format";
 import { metaConfigured } from "@/lib/meta";
 import { refreshMetrics } from "../actions";
@@ -34,6 +35,29 @@ export default async function ContentAnalyticsPage({
       return true;
     });
     return latest.map((m) => ({ post: p, m }));
+  });
+
+  // daily trend: for each snapshot day, the summed latest-known views/reach per post+platform
+  const byDay = new Map<string, Map<string, { views: number; reach: number }>>();
+  const allSnaps = posts
+    .flatMap((p) => p.metrics.map((m) => ({ ...m, postKey: `${p.id}|${m.platform}` })))
+    .sort((a, b) => a.fetchedAt.getTime() - b.fetchedAt.getTime());
+  const runningLatest = new Map<string, { views: number; reach: number }>();
+  for (const m of allSnaps) {
+    runningLatest.set(m.postKey, { views: m.views, reach: m.reach });
+    const dayKey = m.fetchedAt.toISOString().slice(0, 10);
+    byDay.set(dayKey, new Map(runningLatest));
+  }
+  const trendDays = [...byDay.keys()].sort().slice(-14);
+  const trend = trendDays.map((d) => {
+    const snapshot = byDay.get(d)!;
+    let views = 0;
+    let reach = 0;
+    for (const v of snapshot.values()) {
+      views += v.views;
+      reach += v.reach;
+    }
+    return { day: d.slice(5), views, reach };
   });
 
   const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0);
@@ -92,6 +116,24 @@ export default async function ContentAnalyticsPage({
         <Stat label="Engagement" value={engagement} hint="interactions ÷ reach" tone="agave" />
       </div>
 
+      {trend.length >= 2 && (
+        <div className="mt-6">
+          <Card title="Reach & views over time (all published posts)">
+            <BarChart
+              groups={trend.map((t) => t.day)}
+              series={[
+                { label: "Views", color: "#231F20", values: trend.map((t) => t.views) },
+                { label: "Reach", color: "#018769", values: trend.map((t) => t.reach) },
+              ]}
+            />
+            <p className="mt-3 text-xs text-slate/70">
+              Totals across every published post at each analytics refresh — the growth curve of your
+              content overall, refreshed twice a day.
+            </p>
+          </Card>
+        </div>
+      )}
+
       <div className="mt-6">
         <Card title={`Published posts (${rows.length})`}>
           {rows.length === 0 ? (
@@ -107,7 +149,19 @@ export default async function ContentAnalyticsPage({
               {rows.map(({ post, m }) => (
                 <tr key={m.id}>
                   <Td>{post.date.toISOString().slice(0, 10)}</Td>
-                  <Td><Badge tone={m.platform === "INSTAGRAM" ? "blue" : "gray"}>{m.platform === "INSTAGRAM" ? "Instagram" : "Facebook"}</Badge></Td>
+                  <Td>
+                    {m.platform === "INSTAGRAM" && post.igPermalink ? (
+                      <a href={post.igPermalink} target="_blank" rel="noreferrer" className="hover:underline">
+                        <Badge tone="blue">Instagram ↗</Badge>
+                      </a>
+                    ) : m.platform === "FACEBOOK" && post.fbPostId ? (
+                      <a href={`https://www.facebook.com/${post.fbPostId}`} target="_blank" rel="noreferrer" className="hover:underline">
+                        <Badge>Facebook ↗</Badge>
+                      </a>
+                    ) : (
+                      <Badge tone={m.platform === "INSTAGRAM" ? "blue" : "gray"}>{m.platform === "INSTAGRAM" ? "Instagram" : "Facebook"}</Badge>
+                    )}
+                  </Td>
                   <Td>{post.title}</Td>
                   <Td right>{num(m.views)}</Td>
                   <Td right>{num(m.reach)}</Td>

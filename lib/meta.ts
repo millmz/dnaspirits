@@ -105,6 +105,16 @@ async function containerStatus(id: string): Promise<string> {
   return String(status.status_code ?? "");
 }
 
+/** Public URL of a published IG post (best-effort — publish never fails on it). */
+async function igPermalink(igMediaId: string): Promise<string> {
+  try {
+    const res = await graph(`/${igMediaId}`, { fields: "permalink" });
+    return String(res.permalink ?? "");
+  } catch {
+    return "";
+  }
+}
+
 async function markPosted(postId: string, data: Record<string, unknown>) {
   await db.socialPost.update({
     where: { id: postId },
@@ -149,7 +159,8 @@ async function publishInstagram(p: PostForPublish): Promise<boolean> {
     }
     if (code !== "FINISHED") return false; // still processing — next tick
     const pub = await graph(`/${ig}/media_publish`, { creation_id: p.igCreationId }, "POST");
-    await markPosted(p.id, { igMediaId: String(pub.id ?? ""), igCreationId: "", igChildIds: "" });
+    const igId = String(pub.id ?? "");
+    await markPosted(p.id, { igMediaId: igId, igPermalink: await igPermalink(igId), igCreationId: "", igChildIds: "" });
     return true;
   }
 
@@ -200,7 +211,8 @@ async function publishInstagram(p: PostForPublish): Promise<boolean> {
       return false; // async processing — publish on a later tick
     }
     const pub = await graph(`/${ig}/media_publish`, { creation_id: creationId }, "POST");
-    await markPosted(p.id, { igMediaId: String(pub.id ?? "") });
+    const igId = String(pub.id ?? "");
+    await markPosted(p.id, { igMediaId: igId, igPermalink: await igPermalink(igId) });
     return true;
   }
 
