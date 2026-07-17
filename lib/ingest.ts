@@ -10,9 +10,11 @@ import {
   commitCommercialReport,
   commitLsiInventory,
   commitQbPnl,
+  commitAiExtract,
 } from "./import-commit";
+import { extractDocument, type AiExtraction } from "./ai-extract";
 
-export type IngestKind = "COMMERCIAL_REPORT" | "LSI_INVENTORY" | "QB_PNL" | "UNKNOWN";
+export type IngestKind = "COMMERCIAL_REPORT" | "LSI_INVENTORY" | "QB_PNL" | "AI_EXTRACT" | "UNKNOWN";
 
 /** Sniffs a document's type from its sheet names / structure, deterministically. */
 function classify(buf: Buffer, filename: string): IngestKind {
@@ -54,7 +56,7 @@ export async function stageDocument(
   filename: string,
   importerId: string | null
 ): Promise<StageResult> {
-  const kind = classify(buf, filename);
+  let kind = classify(buf, filename);
   const fileB64 = buf.toString("base64");
   let period = "";
   let facts = "";
@@ -110,15 +112,32 @@ export async function stageDocument(
     facts = `Unrecognized document "${filename}". Not one of the known report formats (commercial report, LSI workbook, QB P&L).`;
   }
 
-  // Claude narrative (optional). For UNKNOWN PDFs, hand it the file to read.
-  const note = await writeReviewNote({
-    kind,
-    filename,
-    facts,
-    anomalies,
-    pdfBase64: kind === "UNKNOWN" && filename.toLowerCase().endsWith(".pdf") ? fileB64 : undefined,
-  });
-  const summary = note ?? facts;
+  // Not a known report format → let the AI read it and map it to any platform
+  // category (PO, expense, chargeback, legal, depletions, sale, production).
+  let extraction: AiExtraction | null = null;
+  let summary = "";
+  if (kind === "UNKNOWN" && agentEnabled()) {
+    extraction = await extractDocument(buf, filename);
+    if (extraction) {
+      kind = "AI_EXTRACT" as IngestKind;
+      period = extraction.period;
+      anomalies = extraction.anomalies;
+      proposed = extraction as unknown as Record<string, unknown>;
+      summary = extraction.summary;
+    }
+  }
+
+  if (!summary) {
+    // Claude narrative (optional). For UNKNOWN PDFs, hand it the file to read.
+    const note = await writeReviewNote({
+      kind,
+      filename,
+      facts,
+      anomalies,
+      pdfBase64: kind === "UNKNOWN" && filename.toLowerCase().endsWith(".pdf") ? fileB64 : undefined,
+    });
+    summary = note ?? facts;
+  }
 
   const pending = await db.pendingImport.create({
     data: {
@@ -130,7 +149,7 @@ export async function stageDocument(
       summary,
       anomalies: JSON.stringify(anomalies),
       proposed: JSON.stringify(proposed),
-      aiUsed: Boolean(note) && agentEnabled(),
+      aiUsed: Boolean(extraction) || (agentEnabled() && Boolean(summary)),
       status: "PENDING",
     },
   });
@@ -153,6 +172,10 @@ export async function approvePending(id: string): Promise<string> {
   } else if (p.kind === "QB_PNL") {
     const c = await commitQbPnl(parseQbPnl(buf).rows);
     result = `Imported ${c.rows} P&L lines across ${c.periods} month(s).`;
+  } else if (p.kind === "AI_EXTRACT") {
+    // Commit exactly the extraction the human reviewed and approved.
+    const extraction = JSON.parse(p.proposed) as AiExtraction;
+    result = await commitAiExtract(extraction, p.importerId);
   } else {
     result = "This document type can't be auto-imported — handle it manually.";
   }

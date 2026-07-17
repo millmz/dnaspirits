@@ -229,3 +229,203 @@ export async function commitQbPnl(
   }
   return { periods: periods.length, rows: rows.length };
 }
+
+// ---------- AI-extracted documents (universal inbox) ----------
+
+import type { AiExtraction, AiRecord } from "./ai-extract";
+
+const dateOr = (s: string, fallback?: Date): Date | null => {
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d;
+  return fallback ?? null;
+};
+
+const pick = (value: string, allowed: string[], fallback: string) =>
+  allowed.includes(value) ? value : fallback;
+
+/**
+ * Commits a human-approved AI extraction. Deliberately conservative:
+ * POs land as ORDERED (receive them in Purchasing to move stock), sales as
+ * DRAFT, production runs as PLANNED — approval never moves inventory.
+ */
+export async function commitAiExtract(x: AiExtraction, importerId: string | null): Promise<string> {
+  const now = new Date();
+  const docDate = dateOr(x.docDate, now)!;
+  const rec = (r: AiRecord) => r; // alias for readability
+
+  if (x.category === "PURCHASE_ORDER") {
+    let supplierId = x.entityId;
+    if (supplierId && !(await db.supplier.findUnique({ where: { id: supplierId } }))) supplierId = "";
+    if (!supplierId) {
+      const created = await db.supplier.create({
+        data: { name: x.entityName || "Unknown supplier", notes: "Created from inbox import" },
+      });
+      supplierId = created.id;
+    }
+    let poNumber = x.reference || `INBOX-${docDate.toISOString().slice(0, 10)}`;
+    if (await db.purchaseOrder.findUnique({ where: { poNumber } })) {
+      poNumber = `${poNumber}-${Date.now().toString(36)}`;
+    }
+    const po = await db.purchaseOrder.create({
+      data: { poNumber, supplierId, status: "ORDERED", orderDate: docDate, notes: "Imported from inbox — mark received in Purchasing to add stock." },
+    });
+    let lines = 0;
+    for (const r of x.records.map(rec)) {
+      let componentId = r.matchedId;
+      if (componentId && !(await db.component.findUnique({ where: { id: componentId } }))) componentId = "";
+      if (!componentId) {
+        const created = await db.component.create({
+          data: { name: r.name || "Unnamed component", supplierId, unitCostCents: r.unitCostCents, notes: "Created from inbox import" },
+        });
+        componentId = created.id;
+      }
+      await db.purchaseOrderLine.create({
+        data: { poId: po.id, componentId, qty: r.qty, unitCostCents: r.unitCostCents },
+      });
+      lines++;
+    }
+    return `Created PO ${poNumber} (${lines} lines) as ORDERED — receive it in Purchasing to add stock.`;
+  }
+
+  if (x.category === "EXPENSE") {
+    const cats = ["COGS", "DRY_GOODS", "LOGISTICS", "COMPLIANCE", "MARKETING", "G_AND_A", "OTHER"];
+    let n = 0;
+    for (const r of x.records) {
+      if (r.amountCents === 0) continue;
+      await db.expense.create({
+        data: {
+          date: dateOr(r.date, docDate)!,
+          vendor: r.name || x.entityName || "Unknown vendor",
+          category: pick(r.subCategory, cats, "OTHER"),
+          amountCents: r.amountCents,
+          notes: [r.reference, r.notes].filter(Boolean).join(" — "),
+        },
+      });
+      n++;
+    }
+    return `Recorded ${n} expense${n === 1 ? "" : "s"}.`;
+  }
+
+  if (x.category === "CHARGEBACK") {
+    const imp = importerId ?? (await db.importer.findFirst())?.id;
+    if (!imp) return "No importer on file — add one first.";
+    const cats = ["DISTRIBUTOR_PROMO", "SAMPLES", "FREIGHT", "MARKETING", "OTHER"];
+    let n = 0;
+    for (const r of x.records) {
+      if (r.amountCents === 0) continue;
+      await db.chargeback.create({
+        data: {
+          importerId: imp,
+          date: dateOr(r.date, docDate)!,
+          category: pick(r.subCategory, cats, "OTHER"),
+          amountCents: r.amountCents,
+          reference: r.reference || x.reference,
+          notes: [r.name, r.notes].filter(Boolean).join(" — "),
+        },
+      });
+      n++;
+    }
+    return `Recorded ${n} chargeback${n === 1 ? "" : "s"} (unapplied — link to invoices in Accounting).`;
+  }
+
+  if (x.category === "LEGAL_RECORD") {
+    const types = ["TRADEMARK", "PERMIT", "DOCUMENT", "DEADLINE"];
+    let n = 0;
+    for (const r of x.records) {
+      await db.legalRecord.create({
+        data: {
+          type: pick(r.subCategory, types, "DOCUMENT"),
+          title: r.name || x.entityName || "Imported document",
+          reference: r.reference || x.reference,
+          executed: dateOr(r.date),
+          dueDate: dateOr(r.endDate),
+          notes: r.notes,
+        },
+      });
+      n++;
+    }
+    return `Added ${n} record${n === 1 ? "" : "s"} to the legal register.`;
+  }
+
+  if (x.category === "DEPLETION_REPORT") {
+    const imp = importerId ?? (await db.importer.findFirst())?.id;
+    if (!imp) return "No importer on file — add one first.";
+    let distributorId = x.entityId;
+    if (distributorId && !(await db.distributor.findUnique({ where: { id: distributorId } }))) distributorId = "";
+    if (!distributorId) {
+      const created = await db.distributor.create({
+        data: { importerId: imp, name: x.entityName || "Unknown distributor", notes: "Created from inbox import" },
+      });
+      distributorId = created.id;
+    }
+    const period = /^\d{4}-\d{2}$/.test(x.period) ? x.period : new Date().toISOString().slice(0, 7);
+    const acctTypes = ["ON_PREMISE", "OFF_PREMISE", "UNKNOWN"];
+    let n = 0;
+    for (const r of x.records) {
+      if (r.qty === 0) continue;
+      await db.depletion.create({
+        data: {
+          distributorId,
+          period,
+          accountName: r.name,
+          accountType: pick(r.subCategory, acctTypes, "UNKNOWN"),
+          cases: r.qty,
+          source: "IMPORT",
+          productId: (r.matchedId && (await db.product.findUnique({ where: { id: r.matchedId } }))?.id) || null,
+        },
+      });
+      n++;
+    }
+    return `Imported ${n} account depletion rows for ${period}.`;
+  }
+
+  if (x.category === "EX_WORKS_SALE") {
+    const imp = (x.entityId && (await db.importer.findUnique({ where: { id: x.entityId } }))?.id) || importerId || (await db.importer.findFirst())?.id;
+    const warehouse = await db.warehouse.findFirst();
+    if (!imp || !warehouse) return "Need an importer and a warehouse on file first.";
+    const sale = await db.exWorksSale.create({
+      data: {
+        importerId: imp,
+        warehouseId: warehouse.id,
+        date: docDate,
+        status: "DRAFT",
+        invoiceNumber: x.reference,
+        notes: "Imported from inbox — confirm in Ex-Works Sales to move inventory.",
+      },
+    });
+    let lines = 0;
+    let skipped = 0;
+    for (const r of x.records) {
+      const product = r.matchedId ? await db.product.findUnique({ where: { id: r.matchedId } }) : null;
+      if (!product || r.qty === 0) { skipped++; continue; }
+      await db.exWorksLine.create({
+        data: { saleId: sale.id, productId: product.id, cases: Math.round(r.qty), pricePerCaseCents: r.unitCostCents },
+      });
+      lines++;
+    }
+    return `Created DRAFT sale ${x.reference || sale.id.slice(-6)} with ${lines} lines${skipped ? ` (${skipped} unmatched lines skipped)` : ""} — confirm it to move inventory.`;
+  }
+
+  if (x.category === "PRODUCTION_RUN") {
+    const r = x.records[0];
+    const product = r?.matchedId ? await db.product.findUnique({ where: { id: r.matchedId } }) : null;
+    const warehouse = await db.warehouse.findFirst();
+    if (!r || !product || !warehouse) return "Couldn't match the production run to a product — add it manually in Production.";
+    let lotCode = r.reference || r.name || `LOT-${docDate.toISOString().slice(0, 10)}`;
+    if (await db.productionRun.findUnique({ where: { lotCode } })) lotCode = `${lotCode}-${Date.now().toString(36)}`;
+    await db.productionRun.create({
+      data: {
+        lotCode,
+        productId: product.id,
+        warehouseId: warehouse.id,
+        status: "PLANNED",
+        startDate: dateOr(r.date, docDate)!,
+        bottlesPlanned: Math.round(r.qty),
+        notes: `Imported from inbox — complete it in Production to add finished goods. ${r.notes}`.trim(),
+      },
+    });
+    return `Created PLANNED production run ${lotCode} (${Math.round(r.qty)} bottles) — complete it in Production to add stock.`;
+  }
+
+  return "Nothing to import from this document.";
+}
