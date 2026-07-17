@@ -3,7 +3,8 @@ import { headers } from "next/headers";
 import { requireOps, getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
-import { createPost, advancePost, approveProposed, deletePost } from "./actions";
+import { createPost, advancePost, approveProposed, deletePost, triggerBrandManagerAction } from "./actions";
+import { agentTriggerConfigured, defaultDraftInstruction } from "@/lib/chatgpt-agent";
 
 const CHANNELS = [
   ["INSTAGRAM", "Instagram"],
@@ -31,11 +32,11 @@ const NEXT_LABEL: Record<string, string> = {
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; agent?: string; msg?: string }>;
 }) {
   await requireOps();
   const me = await getCurrentUser();
-  const { month } = await searchParams;
+  const { month, agent, msg } = await searchParams;
   const current = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : new Date().toISOString().slice(0, 7);
 
   const [year, mon] = current.split("-").map(Number);
@@ -77,6 +78,7 @@ export default async function ContentPage({
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "ops.denadatequila.com";
   const mcpUrl = `https://${host}/api/mcp/${contentKey ?? "YOUR_CONTENT_API_KEY"}`;
+  const triggerReady = agentTriggerConfigured();
 
   return (
     <div>
@@ -85,6 +87,21 @@ export default async function ContentPage({
         title="Content Calendar"
         subtitle="Plan social posts and email sends: idea → drafted → scheduled → posted. The De Nada voice: warm, host-first, never flashy."
       />
+
+      {agent === "queued" && (
+        <div className="mb-4">
+          <Callout tone="green">
+            Sent to your brand manager. It&apos;ll read the calendar and post drafts here for your approval in a moment — refresh to see them.
+          </Callout>
+        </div>
+      )}
+      {agent === "error" && (
+        <div className="mb-4">
+          <Callout tone="red">
+            Couldn&apos;t reach your brand manager{msg ? `: ${msg}` : "."}
+          </Callout>
+        </div>
+      )}
 
       {proposed.length > 0 && (
         <Card title={`Proposed by your brand manager (${proposed.length})`}>
@@ -290,6 +307,27 @@ export default async function ContentPage({
                   the cap table, or customer data.
                 </p>
               )}
+            </Card>
+          )}
+
+          {me?.role === "ADMIN" && triggerReady && (
+            <Card title="Ask your brand manager to draft posts">
+              <form action={triggerBrandManagerAction} className="space-y-3">
+                <input type="hidden" name="month" value={current} />
+                <Field label={`Instruction (for ${monthName})`}>
+                  <textarea
+                    name="instruction"
+                    rows={4}
+                    defaultValue={defaultDraftInstruction(monthName)}
+                    className={inputCls}
+                  />
+                </Field>
+                <button className={btnCls}>Send to brand manager</button>
+                <p className="text-xs text-slate/70">
+                  This starts a run of your ChatGPT agent. It reads this calendar and posts drafts back
+                  into the approval queue above — nothing goes live without your click.
+                </p>
+              </form>
             </Card>
           )}
         </div>

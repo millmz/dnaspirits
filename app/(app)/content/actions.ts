@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { requireOps } from "@/lib/auth";
+import { requireOps, requireAdmin } from "@/lib/auth";
 import { toDate } from "@/lib/format";
+import { triggerBrandManager, defaultDraftInstruction } from "@/lib/chatgpt-agent";
 
 export async function createPost(formData: FormData) {
   await requireOps();
@@ -49,4 +51,31 @@ export async function deletePost(formData: FormData) {
   await requireOps();
   await db.socialPost.delete({ where: { id: String(formData.get("id")) } });
   revalidatePath("/content");
+}
+
+/**
+ * Kick off a run of the brand-manager ChatGPT agent, asking it to draft posts.
+ * The agent reads/writes the calendar back over MCP; its proposals land in the
+ * approval queue. Admin-only — it spends the workspace agent's run budget.
+ */
+export async function triggerBrandManagerAction(formData: FormData) {
+  await requireAdmin();
+  const monthParam = String(formData.get("month") ?? "");
+  const month = /^\d{4}-\d{2}$/.test(monthParam) ? monthParam : new Date().toISOString().slice(0, 7);
+  const [y, m] = month.split("-").map(Number);
+  const monthLabel = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+  const custom = String(formData.get("instruction") ?? "").trim();
+  const input = custom || defaultDraftInstruction(monthLabel);
+  const conversationKey = `denada-content-${month}`;
+
+  const result = await triggerBrandManager(input, conversationKey);
+  const flash = result.ok
+    ? "agent=queued"
+    : `agent=error&msg=${encodeURIComponent(result.error)}`;
+  redirect(`/content?month=${month}&${flash}`);
 }
