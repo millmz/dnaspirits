@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toDate } from "@/lib/format";
 import { deleteAsset, deletePostMediaFiles, renumberPostMedia } from "@/lib/media";
-import { runPublisherTick, runMetricsRefresh, metaConfigured } from "@/lib/meta";
+import { runPublisherTick, runMetricsRefresh, metaConfigured, importLiveFeed } from "@/lib/meta";
 import { guardAction } from "@/lib/action-guard";
 
 // Post creation and media uploads live in /api/posts (JSON + chunked
@@ -120,6 +120,18 @@ export async function retryPublish(formData: FormData) {
   });
   await runPublisherTick();
   revalidatePath("/content");
+}
+
+/** Pull everything already live on IG/FB onto the calendar. */
+export async function syncLiveFeed() {
+  await requireOps();
+  if (!metaConfigured()) redirect("/content?err=Meta%20is%20not%20connected");
+  const r = await importLiveFeed();
+  if (r.errors.length) {
+    redirect(`/content?err=${encodeURIComponent(`Feed sync: ${r.errors[0]}`)}`);
+  }
+  revalidatePath("/content");
+  redirect(`/content?synced=${r.ig}+${r.fb}`);
 }
 
 export async function refreshMetrics() {

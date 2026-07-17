@@ -481,6 +481,117 @@ export async function metaDiagnostics(): Promise<MetaCheck[]> {
   return checks;
 }
 
+/** Follow Graph API cursor pagination, capped so a huge feed can't run away. */
+async function graphList(
+  path: string,
+  params: Record<string, string>,
+  maxPages = 4
+): Promise<Array<Record<string, unknown>>> {
+  const out: Array<Record<string, unknown>> = [];
+  let after = "";
+  for (let page = 0; page < maxPages; page++) {
+    const json = await graph(path, after ? { ...params, after } : params);
+    const data = (json.data as Array<Record<string, unknown>> | undefined) ?? [];
+    out.push(...data);
+    const paging = json.paging as { cursors?: { after?: string }; next?: string } | undefined;
+    after = paging?.next && paging?.cursors?.after ? paging.cursors.after : "";
+    if (!after || data.length === 0) break;
+  }
+  return out;
+}
+
+const titleFrom = (text: string, fallback: string) => {
+  const first = text.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  return (first || fallback).slice(0, 80);
+};
+
+/**
+ * Mirror what's already live on Instagram/Facebook onto the calendar:
+ * every published post becomes a POSTED entry on its real publish date,
+ * with outbound links — and the analytics refresh then tracks the whole
+ * feed, not just posts published from here. Posts this platform published
+ * (or already imported) are skipped by their IG/FB ids.
+ */
+export async function importLiveFeed(): Promise<{ ig: number; fb: number; errors: string[] }> {
+  const result = { ig: 0, fb: 0, errors: [] as string[] };
+  if (!metaConfigured()) return { ...result, errors: ["Meta is not connected."] };
+
+  const existing = await db.socialPost.findMany({
+    where: { OR: [{ igMediaId: { not: "" } }, { fbPostId: { not: "" } }] },
+    select: { igMediaId: true, fbPostId: true },
+  });
+  const known = new Set<string>();
+  for (const p of existing) {
+    if (p.igMediaId) known.add(p.igMediaId);
+    if (p.fbPostId) known.add(p.fbPostId);
+  }
+
+  if (igConfigured()) {
+    try {
+      const media = await graphList(`/${process.env.META_IG_USER_ID}/media`, {
+        fields: "id,caption,media_type,permalink,timestamp",
+        limit: "50",
+      });
+      for (const m of media) {
+        const id = String(m.id ?? "");
+        if (!id || known.has(id)) continue;
+        const when = new Date(String(m.timestamp ?? ""));
+        const caption = String(m.caption ?? "");
+        await db.socialPost.create({
+          data: {
+            title: titleFrom(caption, "Instagram post"),
+            caption,
+            channel: "INSTAGRAM",
+            status: "POSTED",
+            date: isNaN(when.getTime()) ? new Date() : when,
+            publishedAt: isNaN(when.getTime()) ? new Date() : when,
+            igMediaId: id,
+            igPermalink: String(m.permalink ?? ""),
+            notes: "Imported from the live Instagram feed",
+          },
+        });
+        known.add(id);
+        result.ig++;
+      }
+    } catch (e) {
+      result.errors.push(`Instagram: ${errMsg(e)}`);
+    }
+  }
+
+  if (fbConfigured()) {
+    try {
+      const posts = await graphList(`/${process.env.META_FB_PAGE_ID}/published_posts`, {
+        fields: "id,message,created_time,permalink_url",
+        limit: "50",
+      });
+      for (const p of posts) {
+        const id = String(p.id ?? "");
+        if (!id || known.has(id)) continue;
+        const when = new Date(String(p.created_time ?? ""));
+        const message = String(p.message ?? "");
+        await db.socialPost.create({
+          data: {
+            title: titleFrom(message, "Facebook post"),
+            caption: message,
+            channel: "FACEBOOK",
+            status: "POSTED",
+            date: isNaN(when.getTime()) ? new Date() : when,
+            publishedAt: isNaN(when.getTime()) ? new Date() : when,
+            fbPostId: id,
+            notes: "Imported from the live Facebook feed",
+          },
+        });
+        known.add(id);
+        result.fb++;
+      }
+    } catch (e) {
+      result.errors.push(`Facebook: ${errMsg(e)}`);
+    }
+  }
+
+  return result;
+}
+
 export type PageTokenResult =
   | { ok: true; pages: { id: string; name: string; token: string }[] }
   | { ok: false; error: string };

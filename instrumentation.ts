@@ -87,16 +87,24 @@ export async function register() {
 
   // Meta (IG/FB) content worker: publish due posts every minute, refresh
   // post analytics twice a day. No-ops unless META_* env vars are set.
-  const { runPublisherTick, runMetricsRefresh, metaConfigured } = await import("./lib/meta");
+  const { runPublisherTick, runMetricsRefresh, importLiveFeed, metaConfigured } = await import("./lib/meta");
   if (metaConfigured()) {
     const tick = () => runPublisherTick().catch((e) => console.error("meta: publisher tick failed:", e));
+    // mirror the live IG/FB feed onto the calendar, then refresh analytics —
+    // imported posts get metrics from the same pass
     const refresh = () =>
-      runMetricsRefresh()
+      importLiveFeed()
+        .then((s) => {
+          if (s.ig || s.fb) console.log(`meta: imported ${s.ig} IG + ${s.fb} FB live posts`);
+          if (s.errors.length) console.warn(`meta: feed import issues: ${s.errors.join("; ")}`);
+        })
+        .catch((e) => console.error("meta: feed import failed:", e))
+        .then(() => runMetricsRefresh())
         .then((r) => console.log(`meta: refreshed metrics for ${r.updated} posts`))
         .catch((e) => console.error("meta: metrics refresh failed:", e));
     setInterval(tick, 60 * 1000).unref?.();
     setTimeout(refresh, 60_000).unref?.();
     setInterval(refresh, 12 * 60 * 60 * 1000).unref?.();
-    console.log("meta: publish worker armed (1m tick) + analytics refresh (12h)");
+    console.log("meta: publish worker armed (1m tick) + feed sync & analytics refresh (12h)");
   }
 }

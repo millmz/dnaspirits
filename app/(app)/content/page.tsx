@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { igConfigured, fbConfigured, appBaseUrl } from "@/lib/meta";
 import { isVideo } from "@/lib/media";
-import { editPost, advancePost, deletePost, publishNow, retryPublish, removePostMedia, movePostMedia } from "./actions";
+import { editPost, advancePost, deletePost, publishNow, retryPublish, removePostMedia, movePostMedia, syncLiveFeed } from "./actions";
 import { PostComposer, AddMedia } from "@/components/post-composer";
 
 const CHANNELS = [
@@ -44,11 +44,11 @@ const DOT_TONE: Record<string, string> = {
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; day?: string; edit?: string; err?: string }>;
+  searchParams: Promise<{ month?: string; day?: string; edit?: string; err?: string; synced?: string }>;
 }) {
   await requireOps();
   const me = await getCurrentUser();
-  const { month, day, edit, err } = await searchParams;
+  const { month, day, edit, err, synced } = await searchParams;
   const current = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : new Date().toISOString().slice(0, 7);
   const selectedDay = /^\d{1,2}$/.test(day ?? "") ? Number(day) : null;
 
@@ -117,6 +117,11 @@ export default async function ContentPage({
           View post analytics →
         </Link>
         {metaOn && (
+          <form action={syncLiveFeed}>
+            <button className="brand-heading text-sm text-agave hover:underline">Sync live feed ⟳</button>
+          </form>
+        )}
+        {metaOn && (
           <span className="text-xs text-slate/70">
             Connected: {[ig && "Instagram", fb && "Facebook"].filter(Boolean).join(" + ")}
           </span>
@@ -126,6 +131,19 @@ export default async function ContentPage({
       {err && (
         <div className="mb-4">
           <Callout tone="red">{err}</Callout>
+        </div>
+      )}
+      {synced && (
+        <div className="mb-4">
+          <Callout tone="green">
+            {(() => {
+              const [igN = "0", fbN = "0"] = synced.split(" ");
+              const total = Number(igN) + Number(fbN);
+              return total === 0
+                ? "Feed is in sync — every live post is already on the calendar."
+                : `Imported ${total} live post${total === 1 ? "" : "s"} (${igN} Instagram, ${fbN} Facebook) onto the calendar — analytics will cover them from the next refresh.`;
+            })()}
+          </Callout>
         </div>
       )}
 
