@@ -16,7 +16,24 @@ model User {
   passwordHash       String
   role               String   @default("MEMBER") // ADMIN | MEMBER | BOOKKEEPER
   mustChangePassword Boolean  @default(false) // temp/admin-set passwords force rotation on next login
+  totpSecret         String   @default("") // sealed (AES-GCM) TOTP secret; present but unconfirmed during enrollment
+  totpEnabled        Boolean  @default(false)
+  sessionVersion     Int      @default(0) // bumped by "sign out everywhere" — invalidates all sessions
   createdAt          DateTime @default(now())
+}
+
+// Sign-in audit trail (successes and failures), pruned after 90 days.
+model LoginEvent {
+  id        String   @id @default(cuid())
+  email     String
+  userId    String   @default("")
+  ok        Boolean
+  kind      String // PASSWORD | TWO_FACTOR
+  ip        String   @default("")
+  userAgent String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 // ---------- Products & BOM ----------

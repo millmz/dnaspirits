@@ -79,6 +79,12 @@ export function NavLinks({ role }: { role: string }) {
           {section.items.map(link)}
         </div>
       ))}
+      <div className="pb-1">
+        <div className="brand-heading px-2 pb-1 pt-3 text-[10px] font-medium tracking-widest text-blanco">
+          Account
+        </div>
+        {link({ href: "/security", label: "My Security" })}
+      </div>
       {role === "ADMIN" && (
         <>
           <div className="pb-1">

@@ -36,6 +36,6 @@ export async function rotatePassword(formData: FormData) {
     where: { id: user.id },
     data: { passwordHash, mustChangePassword: false },
   });
-  await createSession(user.id, passwordHash);
+  await createSession({ ...user, passwordHash });
   redirect(user.role === "BOOKKEEPER" ? "/accounting" : "/");
 }

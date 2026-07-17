@@ -3,7 +3,7 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { createSession, requireAdmin, requireUser } from "@/lib/auth";
+import { createSession, requireAdmin } from "@/lib/auth";
 
 export async function createUser(formData: FormData) {
   await requireAdmin();
@@ -52,18 +52,26 @@ export async function deleteUser(formData: FormData) {
   revalidatePath("/settings");
 }
 
-export async function changeOwnPassword(formData: FormData) {
-  const user = await requireUser();
-  const password = String(formData.get("password") ?? "");
-  if (password.length < 12) return;
-  const passwordHash = await bcrypt.hash(password, 12);
+/** Recovery for a lost authenticator: clears 2FA so the user can re-enroll. */
+export async function resetUser2fa(formData: FormData) {
+  await requireAdmin();
   await db.user.update({
-    where: { id: user.id },
-    data: { passwordHash, mustChangePassword: false },
+    where: { id: String(formData.get("id")) },
+    data: { totpEnabled: false, totpSecret: "" },
   });
-  // changing the password invalidates every other session for this account;
-  // refresh this one so the user stays signed in
-  await createSession(user.id, passwordHash);
+  revalidatePath("/settings");
+}
+
+/** Kill every session for an account (e.g. a departing team member's devices). */
+export async function forceSignOut(formData: FormData) {
+  const admin = await requireAdmin();
+  const id = String(formData.get("id"));
+  const updated = await db.user.update({
+    where: { id },
+    data: { sessionVersion: { increment: 1 } },
+  });
+  // if an admin does this to themselves, keep their current session alive
+  if (id === admin.id) await createSession(updated);
   revalidatePath("/settings");
 }
 

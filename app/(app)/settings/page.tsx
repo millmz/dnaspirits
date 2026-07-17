@@ -4,13 +4,14 @@ import { num, dateStr } from "@/lib/format";
 import { listBackups } from "@/lib/backup";
 import { offsiteConfigured, lastOffsiteStatus, diskUsage } from "@/lib/offsite";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
-import { createUser, deleteUser, resetUserPassword, changeOwnPassword, createWarehouse, backupNow } from "./actions";
+import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow } from "./actions";
 
 export default async function SettingsPage() {
   const me = await requireAdmin();
-  const [users, warehouses] = await Promise.all([
+  const [users, warehouses, loginEvents] = await Promise.all([
     db.user.findMany({ orderBy: { createdAt: "asc" } }),
     db.warehouse.findMany({ orderBy: { name: "asc" } }),
+    db.loginEvent.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
   const backups = listBackups();
   const offsiteOn = offsiteConfigured();
@@ -23,12 +24,13 @@ export default async function SettingsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Team">
-          <Table headers={["Name", "Email", "Role", ""]}>
+          <Table headers={["Name", "Email", "Role", "2FA", ""]}>
             {users.map((u) => (
               <tr key={u.id}>
                 <Td>{u.name}</Td>
                 <Td>{u.email}</Td>
                 <Td>{u.role === "ADMIN" ? <Badge tone="green">Admin</Badge> : <Badge>Member</Badge>}</Td>
+                <Td>{u.totpEnabled ? <Badge tone="green">On</Badge> : <Badge tone="amber">Off</Badge>}</Td>
                 <Td>
                   {u.id !== me.id && (
                     <div className="flex flex-col gap-1">
@@ -43,10 +45,22 @@ export default async function SettingsPage() {
                         />
                         <button className="text-xs font-medium text-agave-deep hover:underline">Reset</button>
                       </form>
-                      <form action={deleteUser}>
-                        <input type="hidden" name="id" value={u.id} />
-                        <button className="text-left text-xs text-stone-400 hover:text-red-600">Remove</button>
-                      </form>
+                      <div className="flex items-center gap-2">
+                        {u.totpEnabled && (
+                          <form action={resetUser2fa}>
+                            <input type="hidden" name="id" value={u.id} />
+                            <button className="text-xs text-stone-400 hover:text-amber-700">Reset 2FA</button>
+                          </form>
+                        )}
+                        <form action={forceSignOut}>
+                          <input type="hidden" name="id" value={u.id} />
+                          <button className="text-xs text-stone-400 hover:text-amber-700">Sign out</button>
+                        </form>
+                        <form action={deleteUser}>
+                          <input type="hidden" name="id" value={u.id} />
+                          <button className="text-left text-xs text-stone-400 hover:text-red-600">Remove</button>
+                        </form>
+                      </div>
                     </div>
                   )}
                   {u.mustChangePassword && <Badge tone="amber">Temp password</Badge>}
@@ -54,6 +68,10 @@ export default async function SettingsPage() {
               </tr>
             ))}
           </Table>
+          <p className="mt-2 text-xs text-slate/70">
+            "Reset 2FA" is the recovery path for a lost phone; "Sign out" kills every session on
+            that account. Ask everyone to turn on 2FA under My Security.
+          </p>
         </Card>
 
         <Card title="Invite team member">
@@ -105,15 +123,31 @@ export default async function SettingsPage() {
           </form>
         </Card>
 
-        <Card title="Change my password">
-          <form action={changeOwnPassword} className="flex items-end gap-3">
-            <Field label="New password (12+ chars)" className="flex-1">
-              <input name="password" type="password" required minLength={12} className={inputCls} />
-            </Field>
-            <button className={btnCls}>Update</button>
-          </form>
+        <Card title="Sign-in activity">
+          {loginEvents.length === 0 ? (
+            <EmptyState>No sign-in attempts recorded yet.</EmptyState>
+          ) : (
+            <Table headers={["When (UTC)", "Account", "Step", "Result", "IP"]}>
+              {loginEvents.map((e) => (
+                <tr key={e.id}>
+                  <Td>
+                    <span className="whitespace-nowrap text-xs">
+                      {e.createdAt.toISOString().slice(0, 16).replace("T", " ")}
+                    </span>
+                  </Td>
+                  <Td>{e.email}</Td>
+                  <Td>{e.kind === "TWO_FACTOR" ? "2FA code" : "Password"}</Td>
+                  <Td>{e.ok ? <Badge tone="green">OK</Badge> : <Badge tone="red">Failed</Badge>}</Td>
+                  <Td><span className="font-mono text-xs">{e.ip || "—"}</span></Td>
+                </tr>
+              ))}
+            </Table>
+          )}
           <p className="mt-2 text-xs text-slate/70">
-            Changing your password signs out every other session on your account.
+            Every password and 2FA attempt, kept for 90 days. A run of failures against an account
+            you don't recognize means someone is guessing at your door — the rate limiter slows
+            them down, but that's the cue to make sure 2FA is on. Your own password and 2FA
+            settings live under <span className="font-medium">My Security</span>.
           </p>
         </Card>
 
