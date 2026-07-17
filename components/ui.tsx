@@ -147,7 +147,8 @@ export function TierBadge({ tier }: { tier: string }) {
 }
 
 export const inputCls =
-  "w-full rounded-md border border-ink/20 bg-white px-3 py-2 text-sm text-ink placeholder-slate/50 focus:border-agave focus:outline-none focus:ring-1 focus:ring-agave";
+  // text-base on mobile stops iOS from auto-zooming focused inputs
+  "w-full rounded-md border border-ink/20 bg-white px-3 py-2 text-base text-ink placeholder-slate/50 focus:border-agave focus:outline-none focus:ring-1 focus:ring-agave sm:text-sm";
 
 export const btnCls =
   "brand-heading inline-flex items-center justify-center rounded-md bg-agave px-4 py-2 text-sm font-medium text-cream hover:bg-agave-deep focus:outline-none focus:ring-2 focus:ring-agave focus:ring-offset-1 disabled:opacity-50";

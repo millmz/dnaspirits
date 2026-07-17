@@ -3,6 +3,7 @@ import Image from "next/image";
 import { requireUser } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
 import { NavLinks } from "@/components/nav-links";
+import { MobileNav } from "@/components/mobile-nav";
 
 export default async function AppLayout({
   children,
@@ -12,8 +13,9 @@ export default async function AppLayout({
   const user = await requireUser();
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="fixed inset-y-0 left-0 flex w-60 flex-col bg-ink text-cream">
+    <div className="min-h-screen lg:flex">
+      {/* desktop sidebar */}
+      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col bg-ink text-cream lg:flex">
         <Link href={user.role === "BOOKKEEPER" ? "/accounting" : "/"} className="block px-6 pb-2 pt-6">
           <Image
             src="/logo-cream.png"
@@ -37,7 +39,11 @@ export default async function AppLayout({
           </form>
         </div>
       </aside>
-      <main className="ml-60 flex-1 px-8 py-8">{children}</main>
+
+      {/* mobile top bar + drawer */}
+      <MobileNav role={user.role} name={user.name} email={user.email} logout={logout} />
+
+      <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:ml-60 lg:px-8 lg:py-8">{children}</main>
     </div>
   );
 }

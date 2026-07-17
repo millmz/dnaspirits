@@ -30,15 +30,23 @@ const NEXT_LABEL: Record<string, string> = {
   SCHEDULED: "Mark posted",
 };
 
+const DOT_TONE: Record<string, string> = {
+  POSTED: "bg-agave",
+  SCHEDULED: "bg-reposado",
+  DRAFTED: "bg-slate/60",
+  IDEA: "bg-ink/25",
+};
+
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; err?: string }>;
+  searchParams: Promise<{ month?: string; day?: string; err?: string }>;
 }) {
   await requireOps();
   const me = await getCurrentUser();
-  const { month, err } = await searchParams;
+  const { month, day, err } = await searchParams;
   const current = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : new Date().toISOString().slice(0, 7);
+  const selectedDay = /^\d{1,2}$/.test(day ?? "") ? Number(day) : null;
 
   const [year, mon] = current.split("-").map(Number);
   const monthStart = new Date(Date.UTC(year, mon - 1, 1));
@@ -67,6 +75,8 @@ export default async function ContentPage({
     const d = p.date.getUTCDate();
     byDay.set(d, [...(byDay.get(d) ?? []), p]);
   }
+
+  const visiblePosts = selectedDay ? posts.filter((p) => p.date.getUTCDate() === selectedDay) : posts;
 
   const today = new Date().toISOString().slice(0, 10);
   const ig = igConfigured();
@@ -113,12 +123,22 @@ export default async function ContentPage({
                   {d}
                 </div>
               ))}
-              {cells.map((day, i) => (
-                <div key={i} className="min-h-20 bg-white/80 p-1.5">
-                  {day && (
-                    <>
-                      <div className="mb-1 text-[10px] font-medium text-slate/60">{day}</div>
-                      {(byDay.get(day) ?? []).map((p) => (
+              {cells.map((d, i) => {
+                if (!d) return <div key={i} className="min-h-12 bg-white/80 p-1 sm:min-h-20 sm:p-1.5" />;
+                const dayPosts = byDay.get(d) ?? [];
+                const isSelected = selectedDay === d;
+                return (
+                  <Link
+                    key={i}
+                    href={isSelected ? `/content?month=${current}` : `/content?month=${current}&day=${d}`}
+                    className={`block min-h-12 bg-white/80 p-1 transition-colors hover:bg-blanco/20 sm:min-h-20 sm:p-1.5 ${
+                      isSelected ? "ring-2 ring-inset ring-agave" : ""
+                    }`}
+                  >
+                    <div className="mb-1 text-[10px] font-medium text-slate/60">{d}</div>
+                    {/* desktop: title chips */}
+                    <div className="hidden sm:block">
+                      {dayPosts.map((p) => (
                         <div
                           key={p.id}
                           className={`mb-1 truncate rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${
@@ -133,20 +153,40 @@ export default async function ContentPage({
                           {p.title}
                         </div>
                       ))}
-                    </>
-                  )}
-                </div>
-              ))}
+                    </div>
+                    {/* mobile: status dots */}
+                    <div className="flex flex-wrap gap-0.5 sm:hidden">
+                      {dayPosts.slice(0, 4).map((p) => (
+                        <span key={p.id} className={`h-1.5 w-1.5 rounded-full ${DOT_TONE[p.status] ?? "bg-ink/25"}`} />
+                      ))}
+                      {dayPosts.length > 4 && <span className="text-[8px] leading-none text-slate/70">+{dayPosts.length - 4}</span>}
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </Card>
 
           <div className="mt-6">
-            <Card title={`Posts in ${monthName}`}>
-              {posts.length === 0 ? (
-                <EmptyState>Nothing planned this month yet.</EmptyState>
+            <Card
+              title={
+                selectedDay
+                  ? `Posts on ${monthName.split(" ")[0]} ${selectedDay}`
+                  : `Posts in ${monthName}`
+              }
+            >
+              {selectedDay && (
+                <Link href={`/content?month=${current}`} className="brand-heading mb-3 inline-block text-xs text-agave hover:underline">
+                  ← Show the whole month
+                </Link>
+              )}
+              {visiblePosts.length === 0 ? (
+                <EmptyState>
+                  {selectedDay ? "Nothing planned this day." : "Nothing planned this month yet."}
+                </EmptyState>
               ) : (
                 <div className="space-y-2">
-                  {posts.map((p) => (
+                  {visiblePosts.map((p) => (
                     <div key={p.id} className="rounded-md border border-ink/8 bg-white/60 px-3 py-2">
                       <div className="flex flex-wrap items-center gap-3">
                         <div className="w-20 text-xs text-slate">{p.date.toISOString().slice(0, 10)}</div>
@@ -165,25 +205,25 @@ export default async function ContentPage({
                             !p.publishError && (
                               <form action={publishNow}>
                                 <input type="hidden" name="id" value={p.id} />
-                                <button className="brand-heading text-xs text-agave hover:underline">Publish now</button>
+                                <button className="brand-heading px-1 py-1.5 text-xs text-agave hover:underline">Publish now</button>
                               </form>
                             )}
                           {p.status !== "POSTED" && (
                             <form action={advancePost}>
                               <input type="hidden" name="id" value={p.id} />
-                              <button className="brand-heading text-xs text-agave hover:underline">
+                              <button className="brand-heading px-1 py-1.5 text-xs text-agave hover:underline">
                                 {NEXT_LABEL[p.status]}
                               </button>
                             </form>
                           )}
                           <form action={deletePost}>
                             <input type="hidden" name="id" value={p.id} />
-                            <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
+                            <button className="px-1 py-1.5 text-xs text-slate/60 hover:text-burnt">Delete</button>
                           </form>
                         </div>
                       </div>
                       {p.items.length > 0 && (
-                        <div className="mt-2 flex flex-wrap items-end gap-2 pl-20">
+                        <div className="mt-2 flex flex-wrap items-end gap-2 sm:pl-20">
                           {p.items.map((it, idx) => (
                             <div key={it.id} className="group relative">
                               {isVideo(it.mime) ? (
@@ -199,23 +239,23 @@ export default async function ContentPage({
                                 <span className="absolute bottom-0.5 right-0.5 rounded-sm bg-ink/70 px-1 text-[9px] text-white">▶</span>
                               )}
                               {p.status !== "POSTED" && (
-                                <div className="mt-0.5 flex justify-center gap-1">
+                                <div className="mt-0.5 flex justify-center gap-0.5">
                                   {idx > 0 && (
                                     <form action={movePostMedia}>
                                       <input type="hidden" name="assetId" value={it.id} />
                                       <input type="hidden" name="dir" value="left" />
-                                      <button className="text-[10px] text-slate/70 hover:text-agave" title="Move earlier">◀</button>
+                                      <button className="flex h-7 w-7 items-center justify-center rounded text-xs text-slate/70 hover:text-agave sm:h-5 sm:w-5 sm:text-[10px]" title="Move earlier">◀</button>
                                     </form>
                                   )}
                                   <form action={removePostMedia}>
                                     <input type="hidden" name="assetId" value={it.id} />
-                                    <button className="text-[10px] text-slate/70 hover:text-burnt" title="Remove">✕</button>
+                                    <button className="flex h-7 w-7 items-center justify-center rounded text-xs text-slate/70 hover:text-burnt sm:h-5 sm:w-5 sm:text-[10px]" title="Remove">✕</button>
                                   </form>
                                   {idx < p.items.length - 1 && (
                                     <form action={movePostMedia}>
                                       <input type="hidden" name="assetId" value={it.id} />
                                       <input type="hidden" name="dir" value="right" />
-                                      <button className="text-[10px] text-slate/70 hover:text-agave" title="Move later">▶</button>
+                                      <button className="flex h-7 w-7 items-center justify-center rounded text-xs text-slate/70 hover:text-agave sm:h-5 sm:w-5 sm:text-[10px]" title="Move later">▶</button>
                                     </form>
                                   )}
                                 </div>
@@ -247,7 +287,7 @@ export default async function ContentPage({
                         </div>
                       )}
                       {(p.caption || p.hashtags || p.assetUrl) && (
-                        <div className="mt-1 pl-20 text-xs text-slate/80">
+                        <div className="mt-1 text-xs text-slate/80 sm:pl-20">
                           {p.caption && <p className="whitespace-pre-wrap">{p.caption}</p>}
                           {p.hashtags && <p className="text-agave-deep">{p.hashtags}</p>}
                           {p.assetUrl && (
@@ -265,7 +305,7 @@ export default async function ContentPage({
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div id="plan" className="scroll-mt-20 space-y-6">
           <Card title="Plan a post">
             <form action={createPost} className="space-y-3">
               <Field label="Working title">
@@ -273,7 +313,12 @@ export default async function ContentPage({
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Post date">
-                  <input name="date" type="date" defaultValue={today} className={inputCls} />
+                  <input
+                    name="date"
+                    type="date"
+                    defaultValue={selectedDay ? `${current}-${String(selectedDay).padStart(2, "0")}` : today}
+                    className={inputCls}
+                  />
                 </Field>
                 <Field label="Channel">
                   <select name="channel" className={inputCls}>
@@ -371,6 +416,18 @@ export default async function ContentPage({
           )}
         </div>
       </div>
+
+      {/* mobile: floating new-post button, jumps to the composer */}
+      <a
+        href="#plan"
+        aria-label="New post"
+        className="fixed bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-agave text-cream shadow-xl transition-transform active:scale-95 lg:hidden"
+      >
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </a>
     </div>
   );
 }
