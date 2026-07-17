@@ -5,21 +5,24 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toDate } from "@/lib/format";
-import { saveMedia, deleteMediaIfOrphaned } from "@/lib/media";
+import { saveMedia, deleteAsset, deletePostMediaFiles, renumberPostMedia } from "@/lib/media";
 import { runPublisherTick, runMetricsRefresh, metaConfigured } from "@/lib/meta";
+
+const MAX_ITEMS = 10; // IG carousel limit
+
+function formFiles(formData: FormData, field: string): File[] {
+  return formData.getAll(field).filter((f): f is File => f instanceof File && f.size > 0);
+}
 
 export async function createPost(formData: FormData) {
   await requireOps();
 
-  let mediaId: string | null = null;
-  const file = formData.get("media");
-  if (file instanceof File && file.size > 0) {
-    const saved = await saveMedia(file);
-    if (!saved.ok) redirect(`/content?err=${encodeURIComponent(saved.error)}`);
-    mediaId = saved.id;
+  const files = formFiles(formData, "media");
+  if (files.length > MAX_ITEMS) {
+    redirect(`/content?err=${encodeURIComponent(`Instagram allows up to ${MAX_ITEMS} items per post — you selected ${files.length}.`)}`);
   }
 
-  await db.socialPost.create({
+  const post = await db.socialPost.create({
     data: {
       date: toDate(formData.get("date") as string),
       channel: String(formData.get("channel") ?? "INSTAGRAM"),
@@ -29,10 +32,62 @@ export async function createPost(formData: FormData) {
       assetUrl: String(formData.get("assetUrl") ?? "").trim(),
       notes: String(formData.get("notes") ?? "").trim(),
       status: String(formData.get("status") ?? "IDEA"),
-      mediaId,
       autoPublish: formData.get("autoPublish") === "on",
     },
   });
+
+  for (let i = 0; i < files.length; i++) {
+    const saved = await saveMedia(files[i], post.id, i);
+    if (!saved.ok) {
+      redirect(`/content?err=${encodeURIComponent(`${files[i].name}: ${saved.error}`)}`);
+    }
+  }
+  revalidatePath("/content");
+}
+
+/** Append more photos/videos to an existing (not yet posted) post. */
+export async function addPostMedia(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  const post = await db.socialPost.findUnique({ where: { id }, include: { items: true } });
+  if (!post || post.status === "POSTED") return;
+
+  const files = formFiles(formData, "media");
+  if (post.items.length + files.length > MAX_ITEMS) {
+    redirect(`/content?err=${encodeURIComponent(`Instagram allows up to ${MAX_ITEMS} items per post — this would make ${post.items.length + files.length}.`)}`);
+  }
+  let pos = post.items.length;
+  for (const f of files) {
+    const saved = await saveMedia(f, id, pos++);
+    if (!saved.ok) redirect(`/content?err=${encodeURIComponent(`${f.name}: ${saved.error}`)}`);
+  }
+  revalidatePath("/content");
+}
+
+export async function removePostMedia(formData: FormData) {
+  await requireOps();
+  const assetId = String(formData.get("assetId"));
+  const asset = await db.mediaAsset.findUnique({ where: { id: assetId }, include: { post: true } });
+  if (!asset || asset.post?.status === "POSTED") return;
+  await deleteAsset(assetId);
+  revalidatePath("/content");
+}
+
+/** Move a carousel item one step left (-1) or right (+1) in swipe order. */
+export async function movePostMedia(formData: FormData) {
+  await requireOps();
+  const assetId = String(formData.get("assetId"));
+  const dir = formData.get("dir") === "left" ? -1 : 1;
+  const asset = await db.mediaAsset.findUnique({ where: { id: assetId }, include: { post: true } });
+  if (!asset?.postId || asset.post?.status === "POSTED") return;
+
+  await renumberPostMedia(asset.postId);
+  const items = await db.mediaAsset.findMany({ where: { postId: asset.postId }, orderBy: { position: "asc" } });
+  const idx = items.findIndex((i) => i.id === assetId);
+  const swap = idx + dir;
+  if (idx < 0 || swap < 0 || swap >= items.length) return;
+  await db.mediaAsset.update({ where: { id: items[idx].id }, data: { position: swap } });
+  await db.mediaAsset.update({ where: { id: items[swap].id }, data: { position: idx } });
   revalidatePath("/content");
 }
 
@@ -52,8 +107,8 @@ export async function deletePost(formData: FormData) {
   const id = String(formData.get("id"));
   const post = await db.socialPost.findUnique({ where: { id } });
   if (!post) return;
+  await deletePostMediaFiles(id); // files first; rows cascade with the post
   await db.socialPost.delete({ where: { id } });
-  await deleteMediaIfOrphaned(post.mediaId);
   revalidatePath("/content");
 }
 

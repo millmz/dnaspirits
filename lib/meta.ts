@@ -1,14 +1,11 @@
 import { db } from "./db";
-import { isImage, isVideo } from "./media";
+import { isVideo } from "./media";
 
 /**
  * Meta (Instagram + Facebook) publishing and analytics via the Graph API.
  *
  * Env (Render → Environment):
- *   META_ACCESS_TOKEN  — long-lived Page access token from your Meta app,
- *                        with instagram_basic, instagram_content_publish,
- *                        pages_manage_posts, pages_read_engagement,
- *                        instagram_manage_insights, read_insights
+ *   META_ACCESS_TOKEN  — long-lived Page access token from your Meta app
  *   META_IG_USER_ID    — the Instagram professional account's IG User id
  *   META_FB_PAGE_ID    — the Facebook Page id
  *   APP_URL            — public base URL (e.g. https://ops.denadatequila.com)
@@ -16,12 +13,18 @@ import { isImage, isVideo } from "./media";
  *
  * Publishing is done by a background worker tick (see instrumentation.ts):
  * a post with autoPublish on, status SCHEDULED and date <= now is published
- * to its channel. Instagram videos go through an async container (REELS)
- * that we poll across ticks. Failures set publishError and turn autoPublish
- * off so a broken post never retries in a loop — fix, then re-enable.
+ * to its channel. A post with ONE media item publishes as a normal IG post
+ * (videos as Reels); 2–10 items publish as an IG carousel (the "swipe" post)
+ * or a Facebook multi-photo post. Instagram processes containers
+ * asynchronously, so the worker carries state across ticks:
+ *   igChildIds   — carousel item containers waiting to finish processing
+ *   igCreationId — the final container (single video / reel / carousel)
+ * Failures set publishError and turn autoPublish off so a broken post never
+ * retries in a loop — fix, then hit Retry.
  */
 
 const GRAPH = () => process.env.META_GRAPH_URL || "https://graph.facebook.com/v23.0";
+const MAX_CAROUSEL = 10;
 
 export function metaConfigured(): boolean {
   return Boolean(
@@ -64,13 +67,16 @@ async function graph(
   return json;
 }
 
+type MediaItem = { id: string; mime: string; position: number };
+
 type PostForPublish = {
   id: string;
   channel: string;
   caption: string;
   hashtags: string;
+  igChildIds: string;
   igCreationId: string;
-  media: { id: string; mime: string } | null;
+  items: MediaItem[];
   assetUrl: string;
 };
 
@@ -78,95 +84,168 @@ function fullCaption(p: { caption: string; hashtags: string }): string {
   return [p.caption, p.hashtags].filter(Boolean).join("\n\n");
 }
 
-/** Public URL Meta downloads the media from. */
-function mediaUrl(p: PostForPublish): string | null {
-  if (p.media) {
-    const base = appBaseUrl();
-    return base ? `${base}/media/${p.media.id}` : null;
-  }
-  return p.assetUrl || null;
+function itemUrl(item: MediaItem): string {
+  return `${appBaseUrl()}/media/${item.id}`;
 }
 
-const isVideoPost = (p: PostForPublish) =>
-  p.media ? isVideo(p.media.mime) : /\.(mp4|mov)(\?|$)/i.test(p.assetUrl);
+/** Ordered media descriptors: uploaded items, falling back to assetUrl. */
+function mediaList(p: PostForPublish): { url: string; video: boolean }[] {
+  const items = [...p.items].sort((a, b) => a.position - b.position);
+  if (items.length > 0) {
+    if (!appBaseUrl()) throw new Error("Set APP_URL so Meta can download uploaded media.");
+    return items.map((i) => ({ url: itemUrl(i), video: isVideo(i.mime) }));
+  }
+  if (p.assetUrl) return [{ url: p.assetUrl, video: /\.(mp4|mov)(\?|$)/i.test(p.assetUrl) }];
+  return [];
+}
+
+async function containerStatus(id: string): Promise<string> {
+  const status = await graph(`/${id}`, { fields: "status_code" });
+  return String(status.status_code ?? "");
+}
+
+async function markPosted(postId: string, data: Record<string, unknown>) {
+  await db.socialPost.update({
+    where: { id: postId },
+    data: { ...data, status: "POSTED", publishedAt: new Date() },
+  });
+}
 
 /**
- * Advance one post's publish by one step. Returns true when fully published.
+ * Advance one post's publish by one step. Returns true when fully published,
+ * false when Instagram is still processing (the next tick continues).
  * Throws with a human-readable message on failure.
  */
 export async function publishStep(p: PostForPublish): Promise<boolean> {
-  const now = new Date();
+  if (p.channel === "INSTAGRAM") return publishInstagram(p);
+  if (p.channel === "FACEBOOK") return publishFacebook(p);
+  throw new Error(`Auto-publish supports Instagram and Facebook, not ${p.channel}.`);
+}
 
-  if (p.channel === "INSTAGRAM") {
-    if (!igConfigured()) throw new Error("Instagram is not connected (set META_ACCESS_TOKEN and META_IG_USER_ID).");
-    const ig = process.env.META_IG_USER_ID!;
+async function publishInstagram(p: PostForPublish): Promise<boolean> {
+  if (!igConfigured()) throw new Error("Instagram is not connected (set META_ACCESS_TOKEN and META_IG_USER_ID).");
+  const ig = process.env.META_IG_USER_ID!;
 
-    // Phase 2: container exists — check processing, then publish.
-    if (p.igCreationId) {
-      const status = await graph(`/${p.igCreationId}`, { fields: "status_code" });
-      const code = String(status.status_code ?? "");
-      if (code === "ERROR" || code === "EXPIRED") {
-        throw new Error(`Instagram could not process the video (status ${code}). Check the file format.`);
-      }
-      if (code !== "FINISHED") return false; // still processing — next tick
-      const pub = await graph(`/${ig}/media_publish`, { creation_id: p.igCreationId }, "POST");
-      await db.socialPost.update({
-        where: { id: p.id },
-        data: { igMediaId: String(pub.id ?? ""), igCreationId: "", status: "POSTED", publishedAt: now },
-      });
-      return true;
+  // Final container exists (single video/reel or assembled carousel) — poll, publish.
+  if (p.igCreationId) {
+    const code = await containerStatus(p.igCreationId);
+    if (code === "ERROR" || code === "EXPIRED") {
+      throw new Error(`Instagram could not process the media (status ${code}). Check the file format.`);
     }
+    if (code !== "FINISHED") return false; // still processing — next tick
+    const pub = await graph(`/${ig}/media_publish`, { creation_id: p.igCreationId }, "POST");
+    await markPosted(p.id, { igMediaId: String(pub.id ?? ""), igCreationId: "", igChildIds: "" });
+    return true;
+  }
 
-    // Phase 1: create the container.
-    const url = mediaUrl(p);
-    if (!url) throw new Error("Instagram needs an image or video — upload media or set APP_URL so Meta can reach it.");
+  // Carousel children pending — wait for all to finish, then assemble.
+  if (p.igChildIds) {
+    const children = p.igChildIds.split(",").filter(Boolean);
+    for (const child of children) {
+      const code = await containerStatus(child);
+      if (code === "ERROR" || code === "EXPIRED") {
+        throw new Error(`Instagram could not process one of the carousel items (status ${code}).`);
+      }
+      if (code !== "FINISHED") return false; // some item still processing
+    }
+    const carousel = await graph(
+      `/${ig}/media`,
+      { media_type: "CAROUSEL", children: children.join(","), caption: fullCaption(p) },
+      "POST"
+    );
+    const creationId = String(carousel.id ?? "");
+    if (!creationId) throw new Error("Instagram did not return a carousel container id.");
+    await db.socialPost.update({
+      where: { id: p.id },
+      data: { igCreationId: creationId, igChildIds: "" },
+    });
+    // publish immediately if the assembled carousel is already done
+    return publishInstagram({ ...p, igCreationId: creationId, igChildIds: "" });
+  }
+
+  // Fresh post — create container(s).
+  const media = mediaList(p);
+  if (media.length === 0) throw new Error("Instagram needs at least one image or video — upload media first.");
+  if (media.length > MAX_CAROUSEL) throw new Error(`Instagram carousels allow at most ${MAX_CAROUSEL} items — this post has ${media.length}.`);
+
+  if (media.length === 1) {
+    const [m] = media;
     const params: Record<string, string> = { caption: fullCaption(p) };
-    if (isVideoPost(p)) {
+    if (m.video) {
       params.media_type = "REELS";
-      params.video_url = url;
+      params.video_url = m.url;
     } else {
-      params.image_url = url;
+      params.image_url = m.url;
     }
     const container = await graph(`/${ig}/media`, params, "POST");
     const creationId = String(container.id ?? "");
     if (!creationId) throw new Error("Instagram did not return a media container id.");
-
-    if (isVideoPost(p)) {
-      // async processing — publish on a later tick
+    if (m.video) {
       await db.socialPost.update({ where: { id: p.id }, data: { igCreationId: creationId } });
-      return false;
+      return false; // async processing — publish on a later tick
     }
     const pub = await graph(`/${ig}/media_publish`, { creation_id: creationId }, "POST");
-    await db.socialPost.update({
-      where: { id: p.id },
-      data: { igMediaId: String(pub.id ?? ""), status: "POSTED", publishedAt: now },
-    });
+    await markPosted(p.id, { igMediaId: String(pub.id ?? "") });
     return true;
   }
 
-  if (p.channel === "FACEBOOK") {
-    if (!fbConfigured()) throw new Error("Facebook is not connected (set META_ACCESS_TOKEN and META_FB_PAGE_ID).");
-    const page = process.env.META_FB_PAGE_ID!;
-    const url = mediaUrl(p);
-    const message = fullCaption(p);
-    let result: Record<string, unknown>;
-    if (url && isVideoPost(p)) {
-      result = await graph(`/${page}/videos`, { file_url: url, description: message }, "POST");
-    } else if (url) {
-      result = await graph(`/${page}/photos`, { url, message }, "POST");
+  // Carousel: one child container per item, in swipe order.
+  const childIds: string[] = [];
+  for (const m of media) {
+    const params: Record<string, string> = { is_carousel_item: "true" };
+    if (m.video) {
+      params.media_type = "VIDEO";
+      params.video_url = m.url;
     } else {
-      if (!message) throw new Error("A Facebook post needs a caption or media.");
-      result = await graph(`/${page}/feed`, { message }, "POST");
+      params.image_url = m.url;
     }
-    const fbId = String(result.post_id ?? result.id ?? "");
-    await db.socialPost.update({
-      where: { id: p.id },
-      data: { fbPostId: fbId, status: "POSTED", publishedAt: now },
+    const child = await graph(`/${ig}/media`, params, "POST");
+    const childId = String(child.id ?? "");
+    if (!childId) throw new Error("Instagram did not return a carousel item container id.");
+    childIds.push(childId);
+  }
+  await db.socialPost.update({ where: { id: p.id }, data: { igChildIds: childIds.join(",") } });
+  // image-only carousels are usually ready instantly — try to finish this tick
+  return publishInstagram({ ...p, igChildIds: childIds.join(","), igCreationId: "" });
+}
+
+async function publishFacebook(p: PostForPublish): Promise<boolean> {
+  if (!fbConfigured()) throw new Error("Facebook is not connected (set META_ACCESS_TOKEN and META_FB_PAGE_ID).");
+  const page = process.env.META_FB_PAGE_ID!;
+  const message = fullCaption(p);
+  const media = mediaList(p);
+
+  let result: Record<string, unknown>;
+  if (media.length === 0) {
+    if (!message) throw new Error("A Facebook post needs a caption or media.");
+    result = await graph(`/${page}/feed`, { message }, "POST");
+  } else if (media.length === 1) {
+    const [m] = media;
+    result = m.video
+      ? await graph(`/${page}/videos`, { file_url: m.url, description: message }, "POST")
+      : await graph(`/${page}/photos`, { url: m.url, message }, "POST");
+  } else {
+    if (media.some((m) => m.video)) {
+      throw new Error("Facebook multi-media posts support photos only — post the video on its own.");
+    }
+    // upload each photo unpublished, then attach them all to one feed post
+    const photoIds: string[] = [];
+    for (const m of media) {
+      const photo = await graph(`/${page}/photos`, { url: m.url, published: "false" }, "POST");
+      const photoId = String(photo.id ?? "");
+      if (!photoId) throw new Error("Facebook did not return a photo id.");
+      photoIds.push(photoId);
+    }
+    const params: Record<string, string> = { message };
+    photoIds.forEach((id, i) => {
+      params[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id });
     });
-    return true;
+    result = await graph(`/${page}/feed`, params, "POST");
   }
 
-  throw new Error(`Auto-publish supports Instagram and Facebook, not ${p.channel}.`);
+  const fbId = String(result.post_id ?? result.id ?? "");
+  await markPosted(p.id, { fbPostId: fbId });
+  return true;
 }
 
 /**
@@ -183,7 +262,7 @@ export async function runPublisherTick(): Promise<void> {
       publishError: "",
       channel: { in: ["INSTAGRAM", "FACEBOOK"] },
     },
-    include: { media: true },
+    include: { items: true },
     take: 10,
   });
   for (const p of due) {
@@ -194,7 +273,7 @@ export async function runPublisherTick(): Promise<void> {
       // park it: no retry loop; the UI shows the error and a retry button
       await db.socialPost.update({
         where: { id: p.id },
-        data: { publishError: msg.slice(0, 500), autoPublish: false, igCreationId: "" },
+        data: { publishError: msg.slice(0, 500), autoPublish: false, igCreationId: "", igChildIds: "" },
       });
       console.error(`meta: publish failed for post ${p.id}:`, msg);
     }

@@ -46,7 +46,9 @@ export function mediaFilePath(asset: { id: string; mime: string }): string {
 }
 
 export async function saveMedia(
-  file: File
+  file: File,
+  postId: string,
+  position: number
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const mime = file.type;
   if (!IMAGE_MIMES.has(mime) && !VIDEO_MIMES.has(mime)) {
@@ -56,22 +58,36 @@ export async function saveMedia(
     return { ok: false, error: "File is over the 200 MB limit." };
   }
   const asset = await db.mediaAsset.create({
-    data: { filename: file.name, mime, bytes: file.size },
+    data: { filename: file.name, mime, bytes: file.size, postId, position },
   });
   mkdirSync(mediaDir(), { recursive: true });
   await writeFile(mediaFilePath(asset), Buffer.from(await file.arrayBuffer()));
   return { ok: true, id: asset.id };
 }
 
-/** Delete an asset (row + file) if no post still references it. */
-export async function deleteMediaIfOrphaned(id: string | null | undefined) {
-  if (!id) return;
-  const used = await db.socialPost.count({ where: { mediaId: id } });
-  if (used > 0) return;
+/** Delete one asset: file on disk + row, then close the position gap. */
+export async function deleteAsset(id: string) {
   const asset = await db.mediaAsset.findUnique({ where: { id } });
   if (!asset) return;
   rmSync(mediaFilePath(asset), { force: true });
   await db.mediaAsset.delete({ where: { id } });
+  if (asset.postId) await renumberPostMedia(asset.postId);
+}
+
+/** Delete every media file belonging to a post (call before deleting the post). */
+export async function deletePostMediaFiles(postId: string) {
+  const assets = await db.mediaAsset.findMany({ where: { postId } });
+  for (const a of assets) rmSync(mediaFilePath(a), { force: true });
+}
+
+/** Re-pack positions to 0..n-1 keeping current order. */
+export async function renumberPostMedia(postId: string) {
+  const items = await db.mediaAsset.findMany({ where: { postId }, orderBy: { position: "asc" } });
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].position !== i) {
+      await db.mediaAsset.update({ where: { id: items[i].id }, data: { position: i } });
+    }
+  }
 }
 
 /** Open a read stream for the range (for the public serve route). */

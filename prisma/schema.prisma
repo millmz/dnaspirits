@@ -330,11 +330,11 @@ model SocialPost {
   status      String   @default("IDEA") // IDEA | DRAFTED | SCHEDULED | POSTED
   source      String   @default("MANUAL")
   approved    Boolean  @default(true)
-  // uploaded media
-  mediaId     String?
-  media       MediaAsset? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  // uploaded media, ordered by position — 2+ items publish as an IG carousel
+  items       MediaAsset[]
   // Meta (IG/FB) publishing
   autoPublish  Boolean   @default(false) // publish to Meta at `date` via the worker
+  igChildIds   String    @default("") // in-flight carousel item container ids (comma-separated, ordered)
   igCreationId String    @default("") // in-flight IG container awaiting processing
   igMediaId    String    @default("") // published IG media id
   fbPostId     String    @default("") // published FB post/photo/video id
@@ -345,12 +345,16 @@ model SocialPost {
 }
 
 model MediaAsset {
-  id        String   @id @default(cuid()) // unguessable — doubles as the public URL path
+  id        String      @id @default(cuid()) // unguessable — doubles as the public URL path
   filename  String
   mime      String
   bytes     Int
-  createdAt DateTime @default(now())
-  posts     SocialPost[]
+  postId    String?
+  post      SocialPost? @relation(fields: [postId], references: [id], onDelete: Cascade)
+  position  Int         @default(0) // order within the post; 0 is the cover
+  createdAt DateTime    @default(now())
+
+  @@index([postId, position])
 }
 
 /// Snapshot of a published post's Meta insights; history is kept so KPIs

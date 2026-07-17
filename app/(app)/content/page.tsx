@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { igConfigured, fbConfigured, appBaseUrl } from "@/lib/meta";
 import { isVideo } from "@/lib/media";
-import { createPost, advancePost, deletePost, publishNow, retryPublish } from "./actions";
+import { createPost, advancePost, deletePost, publishNow, retryPublish, addPostMedia, removePostMedia, movePostMedia } from "./actions";
 
 const CHANNELS = [
   ["INSTAGRAM", "Instagram"],
@@ -49,7 +49,7 @@ export default async function ContentPage({
 
   const posts = await db.socialPost.findMany({
     where: { date: { gte: monthStart, lt: monthEnd } },
-    include: { media: true },
+    include: { items: { orderBy: { position: "asc" } } },
     orderBy: { date: "asc" },
   });
 
@@ -149,17 +149,10 @@ export default async function ContentPage({
                   {posts.map((p) => (
                     <div key={p.id} className="rounded-md border border-ink/8 bg-white/60 px-3 py-2">
                       <div className="flex flex-wrap items-center gap-3">
-                        {p.media && (
-                          isVideo(p.media.mime) ? (
-                            <video src={`/media/${p.media.id}`} className="h-12 w-12 rounded-md object-cover" muted />
-                          ) : (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={`/media/${p.media.id}`} alt="" className="h-12 w-12 rounded-md object-cover" />
-                          )
-                        )}
                         <div className="w-20 text-xs text-slate">{p.date.toISOString().slice(0, 10)}</div>
                         <Badge tone={STATUS_TONE[p.status]}>{p.status}</Badge>
                         <Badge>{chLabel(p.channel)}</Badge>
+                        {p.items.length > 1 && <Badge tone="blue">Carousel · {p.items.length}</Badge>}
                         {p.autoPublish && p.status === "SCHEDULED" && !p.publishError && (
                           <Badge tone="amber">{p.igCreationId ? "Processing…" : "Auto-post armed"}</Badge>
                         )}
@@ -189,6 +182,61 @@ export default async function ContentPage({
                           </form>
                         </div>
                       </div>
+                      {p.items.length > 0 && (
+                        <div className="mt-2 flex flex-wrap items-end gap-2 pl-20">
+                          {p.items.map((it, idx) => (
+                            <div key={it.id} className="group relative">
+                              {isVideo(it.mime) ? (
+                                <video src={`/media/${it.id}`} className="h-16 w-16 rounded-md border border-ink/10 object-cover" muted />
+                              ) : (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={`/media/${it.id}`} alt="" className="h-16 w-16 rounded-md border border-ink/10 object-cover" />
+                              )}
+                              <span className="absolute left-0.5 top-0.5 rounded-sm bg-ink/70 px-1 text-[9px] font-medium text-white">
+                                {idx === 0 ? "cover" : idx + 1}
+                              </span>
+                              {isVideo(it.mime) && (
+                                <span className="absolute bottom-0.5 right-0.5 rounded-sm bg-ink/70 px-1 text-[9px] text-white">▶</span>
+                              )}
+                              {p.status !== "POSTED" && (
+                                <div className="mt-0.5 flex justify-center gap-1">
+                                  {idx > 0 && (
+                                    <form action={movePostMedia}>
+                                      <input type="hidden" name="assetId" value={it.id} />
+                                      <input type="hidden" name="dir" value="left" />
+                                      <button className="text-[10px] text-slate/70 hover:text-agave" title="Move earlier">◀</button>
+                                    </form>
+                                  )}
+                                  <form action={removePostMedia}>
+                                    <input type="hidden" name="assetId" value={it.id} />
+                                    <button className="text-[10px] text-slate/70 hover:text-burnt" title="Remove">✕</button>
+                                  </form>
+                                  {idx < p.items.length - 1 && (
+                                    <form action={movePostMedia}>
+                                      <input type="hidden" name="assetId" value={it.id} />
+                                      <input type="hidden" name="dir" value="right" />
+                                      <button className="text-[10px] text-slate/70 hover:text-agave" title="Move later">▶</button>
+                                    </form>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {p.status !== "POSTED" && p.items.length < 10 && (
+                            <form action={addPostMedia} className="flex flex-col items-start gap-1">
+                              <input type="hidden" name="id" value={p.id} />
+                              <input
+                                name="media"
+                                type="file"
+                                multiple
+                                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+                                className="w-40 text-[10px] text-slate/70 file:mr-1 file:rounded-sm file:border-0 file:bg-ink/8 file:px-1.5 file:py-0.5 file:text-[10px]"
+                              />
+                              <button className="brand-heading text-[10px] text-agave hover:underline">+ Add to carousel</button>
+                            </form>
+                          )}
+                        </div>
+                      )}
                       {p.publishError && (
                         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">
                           <span>Publish failed: {p.publishError}</span>
@@ -240,14 +288,18 @@ export default async function ContentPage({
                   <option value="SCHEDULED">Scheduled</option>
                 </select>
               </Field>
-              <Field label="Photo / video">
+              <Field label="Photos / videos (up to 10)">
                 <input
                   name="media"
                   type="file"
+                  multiple
                   accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
                   className={inputCls}
                 />
               </Field>
+              <p className="-mt-1 text-xs text-slate/70">
+                Pick 2+ files for a swipe carousel — the first is the cover. You can reorder after adding.
+              </p>
               <Field label="Caption">
                 <textarea name="caption" rows={3} placeholder="Full caption in the De Nada voice" className={inputCls} />
               </Field>
