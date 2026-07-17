@@ -28,4 +28,19 @@ export async function register() {
   // boot backup after a short delay (lets the first request warm things up)
   setTimeout(() => run("boot"), 30_000).unref?.();
   setInterval(() => run("daily"), 24 * 60 * 60 * 1000).unref?.();
+
+  // Meta (IG/FB) content worker: publish due posts every minute, refresh
+  // post analytics twice a day. No-ops unless META_* env vars are set.
+  const { runPublisherTick, runMetricsRefresh, metaConfigured } = await import("./lib/meta");
+  if (metaConfigured()) {
+    const tick = () => runPublisherTick().catch((e) => console.error("meta: publisher tick failed:", e));
+    const refresh = () =>
+      runMetricsRefresh()
+        .then((r) => console.log(`meta: refreshed metrics for ${r.updated} posts`))
+        .catch((e) => console.error("meta: metrics refresh failed:", e));
+    setInterval(tick, 60 * 1000).unref?.();
+    setTimeout(refresh, 60_000).unref?.();
+    setInterval(refresh, 12 * 60 * 60 * 1000).unref?.();
+    console.log("meta: publish worker armed (1m tick) + analytics refresh (12h)");
+  }
 }

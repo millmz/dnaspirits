@@ -320,18 +320,55 @@ model MarketSnapshot {
 model SocialPost {
   id          String   @id @default(cuid())
   date        DateTime
-  channel     String   @default("INSTAGRAM") // INSTAGRAM | TIKTOK | YOUTUBE | EMAIL | OTHER
+  channel     String   @default("INSTAGRAM") // INSTAGRAM | FACEBOOK | TIKTOK | YOUTUBE | EMAIL | OTHER
   title       String
   notes       String   @default("")
   // publish-ready fields
   caption     String   @default("")
   hashtags    String   @default("")
-  assetUrl    String   @default("") // link to the image/video to post
+  assetUrl    String   @default("") // external link to the image/video, if not uploaded
   status      String   @default("IDEA") // IDEA | DRAFTED | SCHEDULED | POSTED
-  // brand-manager agent integration
-  source      String   @default("MANUAL") // MANUAL | AGENT
-  approved    Boolean  @default(true) // agent drafts start false, pending review
+  source      String   @default("MANUAL")
+  approved    Boolean  @default(true)
+  // uploaded media
+  mediaId     String?
+  media       MediaAsset? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  // Meta (IG/FB) publishing
+  autoPublish  Boolean   @default(false) // publish to Meta at `date` via the worker
+  igCreationId String    @default("") // in-flight IG container awaiting processing
+  igMediaId    String    @default("") // published IG media id
+  fbPostId     String    @default("") // published FB post/photo/video id
+  publishedAt  DateTime?
+  publishError String    @default("")
+  metrics      PostMetric[]
   createdAt   DateTime @default(now())
+}
+
+model MediaAsset {
+  id        String   @id @default(cuid()) // unguessable — doubles as the public URL path
+  filename  String
+  mime      String
+  bytes     Int
+  createdAt DateTime @default(now())
+  posts     SocialPost[]
+}
+
+/// Snapshot of a published post's Meta insights; history is kept so KPIs
+/// can be tracked over time. Latest snapshot per post is shown in the UI.
+model PostMetric {
+  id        String     @id @default(cuid())
+  postId    String
+  post      SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  platform  String // INSTAGRAM | FACEBOOK
+  views     Int        @default(0)
+  reach     Int        @default(0)
+  likes     Int        @default(0)
+  comments  Int        @default(0)
+  shares    Int        @default(0)
+  saves     Int        @default(0)
+  fetchedAt DateTime   @default(now())
+
+  @@index([postId, fetchedAt])
 }
 
 model Partner {

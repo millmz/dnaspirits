@@ -1,13 +1,14 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { requireOps, getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
-import { createPost, advancePost, approveProposed, deletePost, triggerBrandManagerAction } from "./actions";
-import { agentTriggerConfigured, defaultDraftInstruction } from "@/lib/chatgpt-agent";
+import { PageHeader, Card, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
+import { igConfigured, fbConfigured, appBaseUrl } from "@/lib/meta";
+import { isVideo } from "@/lib/media";
+import { createPost, advancePost, deletePost, publishNow, retryPublish } from "./actions";
 
 const CHANNELS = [
   ["INSTAGRAM", "Instagram"],
+  ["FACEBOOK", "Facebook"],
   ["TIKTOK", "TikTok"],
   ["YOUTUBE", "YouTube"],
   ["EMAIL", "Email"],
@@ -32,11 +33,11 @@ const NEXT_LABEL: Record<string, string> = {
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; agent?: string; msg?: string }>;
+  searchParams: Promise<{ month?: string; err?: string }>;
 }) {
   await requireOps();
   const me = await getCurrentUser();
-  const { month, agent, msg } = await searchParams;
+  const { month, err } = await searchParams;
   const current = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : new Date().toISOString().slice(0, 7);
 
   const [year, mon] = current.split("-").map(Number);
@@ -46,16 +47,11 @@ export default async function ContentPage({
   const next = new Date(Date.UTC(year, mon, 1)).toISOString().slice(0, 7);
   const monthName = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 
-  const [posts, proposed] = await Promise.all([
-    db.socialPost.findMany({
-      where: { approved: true, date: { gte: monthStart, lt: monthEnd } },
-      orderBy: { date: "asc" },
-    }),
-    db.socialPost.findMany({
-      where: { approved: false, source: "AGENT" },
-      orderBy: { createdAt: "desc" },
-    }),
-  ]);
+  const posts = await db.socialPost.findMany({
+    where: { date: { gte: monthStart, lt: monthEnd } },
+    include: { media: true },
+    orderBy: { date: "asc" },
+  });
 
   // month grid
   const firstDow = monthStart.getUTCDay();
@@ -73,75 +69,37 @@ export default async function ContentPage({
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const contentKey = process.env.CONTENT_API_KEY;
-  const apiEnabled = Boolean(contentKey);
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "ops.denadatequila.com";
-  const mcpUrl = `https://${host}/api/mcp/${contentKey ?? "YOUR_CONTENT_API_KEY"}`;
-  const triggerReady = agentTriggerConfigured();
+  const ig = igConfigured();
+  const fb = fbConfigured();
+  const metaOn = ig || fb;
+  const baseUrl = appBaseUrl();
 
   return (
     <div>
       <PageHeader
         label="Marketing"
         title="Content Calendar"
-        subtitle="Plan social posts and email sends: idea → drafted → scheduled → posted. The De Nada voice: warm, host-first, never flashy."
+        subtitle="Upload captions and media, schedule them, and let the platform post to Instagram and Facebook automatically. The De Nada voice: warm, host-first, never flashy."
       />
 
-      {agent === "queued" && (
+      <div className="mb-4 flex items-center gap-3">
+        <Link href="/content/analytics" className="brand-heading text-sm text-agave hover:underline">
+          View post analytics →
+        </Link>
+        {metaOn && (
+          <span className="text-xs text-slate/70">
+            Connected: {[ig && "Instagram", fb && "Facebook"].filter(Boolean).join(" + ")}
+          </span>
+        )}
+      </div>
+
+      {err && (
         <div className="mb-4">
-          <Callout tone="green">
-            Sent to your brand manager. It&apos;ll read the calendar and post drafts here for your approval in a moment — refresh to see them.
-          </Callout>
-        </div>
-      )}
-      {agent === "error" && (
-        <div className="mb-4">
-          <Callout tone="red">
-            Couldn&apos;t reach your brand manager{msg ? `: ${msg}` : "."}
-          </Callout>
+          <Callout tone="red">{err}</Callout>
         </div>
       )}
 
-      {proposed.length > 0 && (
-        <Card title={`Proposed by your brand manager (${proposed.length})`}>
-          <div className="space-y-3">
-            {proposed.map((p) => (
-              <div key={p.id} className="rounded-md border border-blanco/40 bg-blanco/15 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="blue">AI proposed</Badge>
-                  <Badge>{chLabel(p.channel)}</Badge>
-                  <span className="text-xs text-slate">{p.date.toISOString().slice(0, 10)}</span>
-                  <span className="font-medium">{p.title}</span>
-                </div>
-                {p.caption && <p className="mt-2 whitespace-pre-wrap text-sm text-ink/85">{p.caption}</p>}
-                {p.hashtags && <p className="mt-1 text-xs text-agave-deep">{p.hashtags}</p>}
-                {p.assetUrl && (
-                  <a href={p.assetUrl} target="_blank" rel="noreferrer" className="mt-1 block text-xs text-agave-deep underline">
-                    {p.assetUrl}
-                  </a>
-                )}
-                {p.notes && <p className="mt-1 text-xs text-slate/80">{p.notes}</p>}
-                <div className="mt-2 flex gap-2">
-                  <form action={approveProposed}>
-                    <input type="hidden" name="id" value={p.id} />
-                    <button className={btnCls}>Approve → calendar</button>
-                  </form>
-                  <form action={deletePost}>
-                    <input type="hidden" name="id" value={p.id} />
-                    <button className={btnSecondaryCls}>Reject</button>
-                  </form>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="mt-3 text-xs text-slate/70">
-            Your ChatGPT brand manager drafts these through the content API. They stay here until you approve — nothing reaches the live calendar unreviewed.
-          </p>
-        </Card>
-      )}
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+      <div className="mt-2 grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card>
             <div className="mb-4 flex items-center justify-between">
@@ -191,12 +149,32 @@ export default async function ContentPage({
                   {posts.map((p) => (
                     <div key={p.id} className="rounded-md border border-ink/8 bg-white/60 px-3 py-2">
                       <div className="flex flex-wrap items-center gap-3">
+                        {p.media && (
+                          isVideo(p.media.mime) ? (
+                            <video src={`/media/${p.media.id}`} className="h-12 w-12 rounded-md object-cover" muted />
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={`/media/${p.media.id}`} alt="" className="h-12 w-12 rounded-md object-cover" />
+                          )
+                        )}
                         <div className="w-20 text-xs text-slate">{p.date.toISOString().slice(0, 10)}</div>
                         <Badge tone={STATUS_TONE[p.status]}>{p.status}</Badge>
                         <Badge>{chLabel(p.channel)}</Badge>
-                        {p.source === "AGENT" && <Badge tone="blue">AI</Badge>}
+                        {p.autoPublish && p.status === "SCHEDULED" && !p.publishError && (
+                          <Badge tone="amber">{p.igCreationId ? "Processing…" : "Auto-post armed"}</Badge>
+                        )}
+                        {(p.igMediaId || p.fbPostId) && <Badge tone="green">Live on {p.igMediaId ? "IG" : "FB"}</Badge>}
                         <div className="min-w-40 flex-1 text-sm font-medium">{p.title}</div>
                         <div className="flex items-center gap-2">
+                          {metaOn &&
+                            p.status !== "POSTED" &&
+                            (p.channel === "INSTAGRAM" || p.channel === "FACEBOOK") &&
+                            !p.publishError && (
+                              <form action={publishNow}>
+                                <input type="hidden" name="id" value={p.id} />
+                                <button className="brand-heading text-xs text-agave hover:underline">Publish now</button>
+                              </form>
+                            )}
                           {p.status !== "POSTED" && (
                             <form action={advancePost}>
                               <input type="hidden" name="id" value={p.id} />
@@ -211,6 +189,15 @@ export default async function ContentPage({
                           </form>
                         </div>
                       </div>
+                      {p.publishError && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">
+                          <span>Publish failed: {p.publishError}</span>
+                          <form action={retryPublish}>
+                            <input type="hidden" name="id" value={p.id} />
+                            <button className="font-medium underline">Retry</button>
+                          </form>
+                        </div>
+                      )}
                       {(p.caption || p.hashtags || p.assetUrl) && (
                         <div className="mt-1 pl-20 text-xs text-slate/80">
                           {p.caption && <p className="whitespace-pre-wrap">{p.caption}</p>}
@@ -237,7 +224,7 @@ export default async function ContentPage({
                 <input name="title" required placeholder="Paloma recipe reel — backyard table" className={inputCls} />
               </Field>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Target date">
+                <Field label="Post date">
                   <input name="date" type="date" defaultValue={today} className={inputCls} />
                 </Field>
                 <Field label="Channel">
@@ -247,11 +234,19 @@ export default async function ContentPage({
                 </Field>
               </div>
               <Field label="Status">
-                <select name="status" className={inputCls}>
+                <select name="status" className={inputCls} defaultValue="SCHEDULED">
                   <option value="IDEA">Idea</option>
                   <option value="DRAFTED">Drafted</option>
                   <option value="SCHEDULED">Scheduled</option>
                 </select>
+              </Field>
+              <Field label="Photo / video">
+                <input
+                  name="media"
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+                  className={inputCls}
+                />
               </Field>
               <Field label="Caption">
                 <textarea name="caption" rows={3} placeholder="Full caption in the De Nada voice" className={inputCls} />
@@ -260,74 +255,66 @@ export default async function ContentPage({
                 <Field label="Hashtags">
                   <input name="hashtags" placeholder="#DeNada #tequila" className={inputCls} />
                 </Field>
-                <Field label="Asset link">
+                <Field label="External asset link (optional)">
                   <input name="assetUrl" placeholder="https://…" className={inputCls} />
                 </Field>
               </div>
               <Field label="Art-direction notes">
                 <textarea name="notes" rows={2} className={inputCls} />
               </Field>
+              {metaOn && (
+                <label className="flex items-center gap-2 text-sm text-ink/85">
+                  <input type="checkbox" name="autoPublish" defaultChecked className="h-4 w-4 accent-agave" />
+                  Auto-post to Instagram/Facebook on the post date
+                </label>
+              )}
               <button className={btnCls}>Add to calendar</button>
               <p className="text-xs text-slate/70">
-                Art direction cue: the bottle already on the counter — food, prep, people. Something happening just outside the frame.
+                Scheduled posts with auto-post on go live within a minute of their date.
+                Art direction cue: the bottle already on the counter — food, prep, people.
               </p>
             </form>
           </Card>
 
           {me?.role === "ADMIN" && (
-            <Card title="Connect your ChatGPT brand manager">
-              {apiEnabled ? (
-                <div className="space-y-3 text-sm text-ink/85">
-                  <p>The content API is <span className="font-medium text-agave-deep">on</span>.</p>
-                  <div>
-                    <p className="font-medium">ChatGPT Agent (connector / “New app”):</p>
-                    <ol className="mt-1 list-decimal space-y-1 pl-4 text-xs">
-                      <li>In the agent&apos;s connector dialog, paste this as the <span className="font-medium">MCP Server URL</span>:</li>
-                    </ol>
-                    <p className="mt-1 break-all rounded-md bg-ink/5 p-2 font-mono text-[11px]">{mcpUrl}</p>
-                    <ol className="mt-1 list-decimal space-y-1 pl-4 text-xs" start={2}>
-                      <li>Set Authentication to <span className="font-medium">No authentication</span> — the secret key is inside the URL, so treat the URL itself like a password.</li>
-                      <li>The agent gets two tools: <span className="font-mono">list_posts</span> and <span className="font-mono">propose_post</span>. Proposals land above for your approval.</li>
-                    </ol>
-                  </div>
-                  <div>
-                    <p className="font-medium">Custom GPT (Actions) instead:</p>
-                    <ol className="mt-1 list-decimal space-y-1 pl-4 text-xs">
-                      <li>Import the schema from <span className="font-mono">/api/content/openapi.json</span> on this domain.</li>
-                      <li>Set Authentication → API Key → <span className="font-medium">Bearer</span>, and paste your <span className="font-mono">CONTENT_API_KEY</span>.</li>
-                    </ol>
-                  </div>
+            <Card title="Connect Instagram & Facebook">
+              {metaOn ? (
+                <div className="space-y-2 text-sm text-ink/85">
+                  <p>
+                    Meta is <span className="font-medium text-agave-deep">connected</span>
+                    {" — "}{[ig && "Instagram", fb && "Facebook"].filter(Boolean).join(" and ")}.
+                  </p>
+                  {!baseUrl && (
+                    <Callout tone="amber">
+                      Set <span className="font-mono">APP_URL</span> (e.g. https://ops.denadatequila.com) so Meta can
+                      download uploaded media when publishing.
+                    </Callout>
+                  )}
+                  <p className="text-xs text-slate/70">
+                    Scheduled posts publish automatically; analytics refresh twice a day (or on demand from the
+                    analytics page).
+                  </p>
                 </div>
               ) : (
-                <p className="text-xs leading-relaxed text-slate/80">
-                  To let your ChatGPT brand manager read the calendar and propose posts, set a
-                  <span className="font-mono"> CONTENT_API_KEY</span> env var (any long random string) in Render.
-                  Once set, this card shows the MCP server URL to paste into your ChatGPT Agent&apos;s
-                  connector dialog. The key is scoped to content only — it can never reach financials,
-                  the cap table, or customer data.
-                </p>
+                <div className="space-y-2 text-xs leading-relaxed text-slate/80">
+                  <p>To auto-publish and pull analytics, set these env vars in Render:</p>
+                  <ul className="list-disc space-y-1 pl-4 font-mono">
+                    <li>META_ACCESS_TOKEN</li>
+                    <li>META_IG_USER_ID</li>
+                    <li>META_FB_PAGE_ID</li>
+                    <li>APP_URL</li>
+                  </ul>
+                  <p>
+                    Get them from a Meta app (developers.facebook.com) connected to the De Nada Facebook Page and
+                    Instagram professional account: generate a long-lived Page access token with
+                    <span className="font-mono"> instagram_content_publish</span>,
+                    <span className="font-mono"> pages_manage_posts</span>,
+                    <span className="font-mono"> pages_read_engagement</span> and
+                    <span className="font-mono"> instagram_manage_insights</span>. Ask Claude to walk you through it
+                    step by step when you&apos;re ready.
+                  </p>
+                </div>
               )}
-            </Card>
-          )}
-
-          {me?.role === "ADMIN" && triggerReady && (
-            <Card title="Ask your brand manager to draft posts">
-              <form action={triggerBrandManagerAction} className="space-y-3">
-                <input type="hidden" name="month" value={current} />
-                <Field label={`Instruction (for ${monthName})`}>
-                  <textarea
-                    name="instruction"
-                    rows={4}
-                    defaultValue={defaultDraftInstruction(monthName)}
-                    className={inputCls}
-                  />
-                </Field>
-                <button className={btnCls}>Send to brand manager</button>
-                <p className="text-xs text-slate/70">
-                  This starts a run of your ChatGPT agent. It reads this calendar and posts drafts back
-                  into the approval queue above — nothing goes live without your click.
-                </p>
-              </form>
             </Card>
           )}
         </div>
