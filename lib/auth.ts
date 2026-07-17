@@ -65,6 +65,8 @@ export async function getCurrentUser() {
 export async function requireUser() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  // temp/admin-set passwords must be rotated before using the app
+  if (user.mustChangePassword) redirect("/password");
   return user;
 }
 

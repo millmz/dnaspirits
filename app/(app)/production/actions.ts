@@ -9,9 +9,13 @@ import { bomRequirements, getComponentStock } from "@/lib/inventory";
 
 export async function createRun(formData: FormData) {
   await requireOps();
+  const lotCode = String(formData.get("lotCode") ?? "").trim().toUpperCase();
+  if (await db.productionRun.findUnique({ where: { lotCode } })) {
+    redirect(`/production?err=${encodeURIComponent(`Lot code ${lotCode} already exists — pick another.`)}`);
+  }
   await db.productionRun.create({
     data: {
-      lotCode: String(formData.get("lotCode") ?? "").trim().toUpperCase(),
+      lotCode,
       productId: String(formData.get("productId")),
       warehouseId: String(formData.get("warehouseId")),
       startDate: toDate(formData.get("startDate") as string),
@@ -103,6 +107,51 @@ export async function completeRun(formData: FormData) {
         },
       })
     ),
+  ]);
+  revalidatePath("/production");
+  revalidatePath("/inventory");
+  revalidatePath("/components");
+  revalidatePath("/");
+}
+
+/** Remove a run that hasn't produced anything yet. */
+export async function deleteRun(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  const run = await db.productionRun.findUnique({ where: { id } });
+  if (!run || run.status === "COMPLETED") return;
+  await db.productionRun.delete({ where: { id } });
+  revalidatePath("/production");
+}
+
+/**
+ * Undo a mistaken completion: removes the finished-goods posting and returns
+ * the consumed dry goods. Refuses if the bottled stock has since been sold or
+ * transferred (reversal would drive the warehouse negative).
+ */
+export async function uncompleteRun(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  const run = await db.productionRun.findUniqueOrThrow({ where: { id } });
+  if (run.status !== "COMPLETED") return;
+
+  const { getStockForWarehouse } = await import("@/lib/inventory");
+  const onHand = await getStockForWarehouse(run.productId, run.warehouseId);
+  if (onHand < run.bottlesProduced) {
+    redirect(
+      `/production?err=${encodeURIComponent(
+        `Can't undo lot ${run.lotCode} — only ${onHand} of its ${run.bottlesProduced} bottles are still in the warehouse.`
+      )}`
+    );
+  }
+
+  await db.$transaction([
+    db.inventoryMovement.deleteMany({ where: { productionRunId: id, type: "PRODUCTION" } }),
+    db.componentMovement.deleteMany({ where: { type: "PRODUCTION", reference: run.lotCode } }),
+    db.productionRun.update({
+      where: { id },
+      data: { status: "IN_PROGRESS", bottlesProduced: 0, bottledDate: null },
+    }),
   ]);
   revalidatePath("/production");
   revalidatePath("/inventory");

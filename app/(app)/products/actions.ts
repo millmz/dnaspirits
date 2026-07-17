@@ -8,9 +8,14 @@ import { recalcProductCosts } from "@/lib/bom-cost";
 
 export async function createProduct(formData: FormData) {
   await requireOps();
+  const sku = String(formData.get("sku") ?? "").trim().toUpperCase();
+  if (await db.product.findUnique({ where: { sku } })) {
+    const { redirect } = await import("next/navigation");
+    redirect(`/products?err=${encodeURIComponent(`SKU ${sku} already exists — pick another.`)}`);
+  }
   await db.product.create({
     data: {
-      sku: String(formData.get("sku") ?? "").trim().toUpperCase(),
+      sku,
       name: String(formData.get("name") ?? "").trim(),
       tier: String(formData.get("tier") ?? "OTHER"),
       sizeMl: toInt(formData.get("sizeMl") as string, 700),

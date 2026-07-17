@@ -1,11 +1,16 @@
 import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { money, num, dateStr } from "@/lib/format";
-import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState } from "@/components/ui";
-import { createPO, receivePO, cancelPO } from "./actions";
+import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
+import { createPO, receivePO, unreceivePO, cancelPO } from "./actions";
 
-export default async function PurchasingPage() {
+export default async function PurchasingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ err?: string }>;
+}) {
   await requireOps();
+  const { err } = await searchParams;
   const [pos, suppliers, components] = await Promise.all([
     db.purchaseOrder.findMany({
       orderBy: { orderDate: "desc" },
@@ -24,6 +29,12 @@ export default async function PurchasingPage() {
         title="Purchasing"
         subtitle="Purchase orders to your Mexican suppliers. Receiving a PO adds the goods to dry-goods stock automatically."
       />
+
+      {err && (
+        <div className="mb-4">
+          <Callout tone="red">{err}</Callout>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
@@ -61,6 +72,14 @@ export default async function PurchasingPage() {
                         {po.expectedDate && po.status === "ORDERED" && ` · expected ${dateStr(po.expectedDate)}`}
                         {po.notes && ` · ${po.notes}`}
                       </div>
+                      {po.status === "RECEIVED" && (
+                        <form action={unreceivePO} className="mt-2">
+                          <input type="hidden" name="id" value={po.id} />
+                          <button className="text-xs text-slate/60 underline-offset-2 hover:text-burnt hover:underline">
+                            Undo receipt (returns the stock)
+                          </button>
+                        </form>
+                      )}
                       {po.status === "ORDERED" && (
                         <div className="mt-3 flex flex-wrap items-end gap-3">
                           <form action={receivePO} className="flex items-end gap-3">
@@ -109,7 +128,7 @@ export default async function PurchasingPage() {
               <div className="brand-heading pt-1 text-[11px] font-medium text-slate">
                 Lines (cost blank = current unit cost)
               </div>
-              {[0, 1, 2].map((i) => (
+              {[0, 1, 2, 3, 4].map((i) => (
                 <div key={i} className="grid grid-cols-[1fr_70px_80px] gap-2">
                   <select name={`line${i}_componentId`} className={inputCls} defaultValue="">
                     <option value="">—</option>

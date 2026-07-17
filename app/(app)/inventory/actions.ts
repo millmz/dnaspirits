@@ -11,11 +11,25 @@ import { getStockForWarehouse } from "@/lib/inventory";
 export async function adjustInventory(formData: FormData) {
   await requireOps();
   const bottles = toInt(formData.get("bottles") as string);
-  if (bottles === 0) return;
+  if (bottles === 0) redirect("/inventory?err=Enter+a+non-zero+bottle+adjustment");
+  const productId = String(formData.get("productId"));
+  const warehouseId = String(formData.get("warehouseId"));
+
+  if (bottles < 0) {
+    const onHand = await getStockForWarehouse(productId, warehouseId);
+    if (onHand + bottles < 0) {
+      redirect(
+        `/inventory?err=${encodeURIComponent(
+          `That adjustment would take stock below zero (on hand: ${onHand} bottles).`
+        )}`
+      );
+    }
+  }
+
   await db.inventoryMovement.create({
     data: {
-      productId: String(formData.get("productId")),
-      warehouseId: String(formData.get("warehouseId")),
+      productId,
+      warehouseId,
       type: String(formData.get("type") ?? "ADJUSTMENT"),
       bottles,
       date: toDate(formData.get("date") as string),

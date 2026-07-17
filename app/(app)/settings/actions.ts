@@ -18,6 +18,27 @@ export async function createUser(formData: FormData) {
       role: ["ADMIN", "MEMBER", "BOOKKEEPER"].includes(String(formData.get("role")))
         ? String(formData.get("role"))
         : "MEMBER",
+      mustChangePassword: true, // temp password — rotated on first login
+    },
+  });
+  revalidatePath("/settings");
+}
+
+/**
+ * Admin sets a temporary password for a locked-out user. The user is forced
+ * to choose their own password on next login, and all their existing
+ * sessions are invalidated immediately (password-version claim rotates).
+ */
+export async function resetUserPassword(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id"));
+  const password = String(formData.get("password") ?? "");
+  if (password.length < 12) return;
+  await db.user.update({
+    where: { id },
+    data: {
+      passwordHash: await bcrypt.hash(password, 12),
+      mustChangePassword: true,
     },
   });
   revalidatePath("/settings");
@@ -36,7 +57,10 @@ export async function changeOwnPassword(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   if (password.length < 12) return;
   const passwordHash = await bcrypt.hash(password, 12);
-  await db.user.update({ where: { id: user.id }, data: { passwordHash } });
+  await db.user.update({
+    where: { id: user.id },
+    data: { passwordHash, mustChangePassword: false },
+  });
   // changing the password invalidates every other session for this account;
   // refresh this one so the user stays signed in
   await createSession(user.id, passwordHash);

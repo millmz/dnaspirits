@@ -1,8 +1,8 @@
 import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { money, num, dateStr } from "@/lib/format";
-import { PageHeader, Card, Badge, Field, Table, Td, inputCls, btnCls, btnSecondaryCls, EmptyState } from "@/components/ui";
-import { createSale, confirmSale, markPaid, deleteDraft, createChargeback, deleteChargeback } from "./actions";
+import { PageHeader, Card, Badge, Field, Table, Td, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
+import { createSale, confirmSale, unconfirmSale, markPaid, markUnpaid, recordPayment, deleteDraft, createChargeback, deleteChargeback } from "./actions";
 
 const CB_CATEGORIES = [
   ["DISTRIBUTOR_PROMO", "Distributor promo / billback"],
@@ -14,8 +14,13 @@ const CB_CATEGORIES = [
 
 const cbLabel = (k: string) => CB_CATEGORIES.find(([c]) => c === k)?.[1] ?? k;
 
-export default async function SalesPage() {
+export default async function SalesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ err?: string }>;
+}) {
   await requireOps();
+  const { err } = await searchParams;
   const [sales, importers, warehouses, products, chargebacks] = await Promise.all([
     db.exWorksSale.findMany({
       orderBy: { date: "desc" },
@@ -43,6 +48,12 @@ export default async function SalesPage() {
         subtitle="Sales to your importer at the distillery door. Confirming a sale hands off ownership — finished goods leave your books and the invoice becomes a receivable."
       />
 
+      {err && (
+        <div className="mb-4">
+          <Callout tone="red">{err}</Callout>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card title="All sales">
@@ -63,6 +74,7 @@ export default async function SalesPage() {
                         </div>
                         {s.status === "DRAFT" ? <Badge>Draft</Badge>
                           : s.invoiceStatus === "PAID" ? <Badge tone="green">Confirmed · Paid</Badge>
+                          : s.amountPaidCents > 0 ? <Badge tone="blue">Confirmed · Partially paid</Badge>
                           : <Badge tone="amber">Confirmed · Unpaid</Badge>}
                       </div>
                       <div className="mt-2 text-sm text-ink/80">
@@ -75,6 +87,8 @@ export default async function SalesPage() {
                       <div className="mt-1 text-sm text-slate">
                         {num(cases)} cases · {money(value)} total
                         {s.invoiceNumber && ` · Invoice ${s.invoiceNumber}`}
+                        {s.dueDate && s.invoiceStatus === "UNPAID" && ` · due ${dateStr(s.dueDate)}`}
+                        {s.amountPaidCents > 0 && s.invoiceStatus === "UNPAID" && ` · ${money(s.amountPaidCents)} received`}
                         {` · ex-works ${s.warehouse.name}`}
                       </div>
                       {credits > 0 && (
@@ -99,9 +113,30 @@ export default async function SalesPage() {
                           </>
                         )}
                         {s.status === "CONFIRMED" && s.invoiceStatus === "UNPAID" && (
-                          <form action={markPaid}>
+                          <>
+                            <form action={recordPayment} className="flex items-center gap-2">
+                              <input type="hidden" name="id" value={s.id} />
+                              <input name="amount" placeholder="$ received" className={`${inputCls} w-28`} />
+                              <input name="date" type="date" defaultValue={today} className={`${inputCls} w-36`} />
+                              <button className={btnSecondaryCls}>Record payment</button>
+                            </form>
+                            <form action={markPaid} className="flex items-center gap-2">
+                              <input type="hidden" name="id" value={s.id} />
+                              <input type="hidden" name="date" value={today} />
+                              <button className="px-1 py-1.5 text-xs text-agave underline-offset-2 hover:underline">Mark fully paid</button>
+                            </form>
+                            {s.amountPaidCents === 0 && (
+                              <form action={unconfirmSale}>
+                                <input type="hidden" name="id" value={s.id} />
+                                <button className="px-1 py-1.5 text-xs text-slate/60 hover:text-burnt">Undo confirm</button>
+                              </form>
+                            )}
+                          </>
+                        )}
+                        {s.status === "CONFIRMED" && s.invoiceStatus === "PAID" && (
+                          <form action={markUnpaid}>
                             <input type="hidden" name="id" value={s.id} />
-                            <button className={btnSecondaryCls}>Mark invoice paid</button>
+                            <button className="px-1 py-1.5 text-xs text-slate/60 hover:text-burnt">Mark unpaid (undo)</button>
                           </form>
                         )}
                       </div>
@@ -130,14 +165,19 @@ export default async function SalesPage() {
                 <input name="date" type="date" defaultValue={today} className={inputCls} />
               </Field>
             </div>
-            <Field label="Invoice #">
-              <input name="invoiceNumber" placeholder="INV-1042" className={inputCls} />
-            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Invoice #">
+                <input name="invoiceNumber" placeholder="INV-1042" className={inputCls} />
+              </Field>
+              <Field label="Payment due (optional)">
+                <input name="dueDate" type="date" className={inputCls} />
+              </Field>
+            </div>
 
             <div className="brand-heading pt-1 text-[11px] font-medium text-slate">
               Lines (price blank = ex-works price)
             </div>
-            {[0, 1, 2].map((i) => (
+            {[0, 1, 2, 3, 4].map((i) => (
               <div key={i} className="grid grid-cols-[1fr_70px_84px] gap-2">
                 <select name={`line${i}_productId`} className={inputCls} defaultValue="">
                   <option value="">—</option>

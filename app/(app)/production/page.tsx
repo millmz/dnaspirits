@@ -2,7 +2,7 @@ import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { money, num, dateStr } from "@/lib/format";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
-import { createRun, startRun, completeRun } from "./actions";
+import { createRun, startRun, completeRun, deleteRun, uncompleteRun } from "./actions";
 
 export default async function ProductionPage({
   searchParams,
@@ -69,9 +69,23 @@ export default async function ProductionPage({
                     </div>
 
                     {r.status === "PLANNED" && (
-                      <form action={startRun} className="mt-3">
+                      <div className="mt-3 flex items-center gap-3">
+                        <form action={startRun}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <button className={btnSecondaryCls}>Mark in progress</button>
+                        </form>
+                        <form action={deleteRun}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <button className="text-xs text-slate/60 hover:text-burnt">Delete run</button>
+                        </form>
+                      </div>
+                    )}
+                    {r.status === "COMPLETED" && (
+                      <form action={uncompleteRun} className="mt-2">
                         <input type="hidden" name="id" value={r.id} />
-                        <button className={btnSecondaryCls}>Mark in progress</button>
+                        <button className="text-xs text-slate/60 underline-offset-2 hover:text-burnt hover:underline">
+                          Undo completion (returns bottles &amp; dry goods)
+                        </button>
                       </form>
                     )}
                     {r.status === "IN_PROGRESS" && (

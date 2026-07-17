@@ -10,12 +10,13 @@ datasource db {
 // ---------- Team ----------
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         String   @default("MEMBER") // ADMIN | MEMBER | BOOKKEEPER
-  createdAt    DateTime @default(now())
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  name               String
+  passwordHash       String
+  role               String   @default("MEMBER") // ADMIN | MEMBER | BOOKKEEPER
+  mustChangePassword Boolean  @default(false) // temp/admin-set passwords force rotation on next login
+  createdAt          DateTime @default(now())
 }
 
 // ---------- Products & BOM ----------
@@ -209,9 +210,11 @@ model ExWorksSale {
   warehouseId   String
   warehouse     Warehouse @relation(fields: [warehouseId], references: [id])
   date          DateTime
+  dueDate       DateTime? // payment terms; drives AR aging
   status        String    @default("DRAFT") // DRAFT | CONFIRMED
   invoiceNumber String    @default("")
-  invoiceStatus String    @default("UNPAID") // UNPAID | PAID
+  invoiceStatus String    @default("UNPAID") // UNPAID | PAID (partial = UNPAID with amountPaidCents > 0)
+  amountPaidCents Int     @default(0) // cumulative payments received
   paidDate      DateTime?
   notes         String    @default("")
 
@@ -337,6 +340,7 @@ model SocialPost {
   igChildIds   String    @default("") // in-flight carousel item container ids (comma-separated, ordered)
   igCreationId String    @default("") // in-flight IG container awaiting processing
   igMediaId    String    @default("") // published IG media id
+  igPermalink  String    @default("") // public URL of the live IG post
   fbPostId     String    @default("") // published FB post/photo/video id
   publishedAt  DateTime?
   publishError String    @default("")

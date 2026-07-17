@@ -10,7 +10,7 @@
     "db:seed": "node prisma/seed.mjs",
     "setup": "prisma migrate deploy && node prisma/seed.mjs",
     "postinstall": "prisma generate",
-    "deploy:start": "node scripts/repair-db.mjs && prisma migrate deploy && node scripts/remove-placeholder-seed.mjs && node prisma/seed.mjs && node scripts/setup-real-data.mjs && node scripts/fix-dry-goods-structure.mjs && node scripts/fix-shipper-double-count.mjs && node scripts/setup-company-records.mjs && node scripts/setup-historical-financials.mjs && next start",
+    "deploy:start": "node scripts/repair-db.mjs && prisma migrate deploy && node scripts/remove-placeholder-seed.mjs && node prisma/seed.mjs && node scripts/setup-real-data.mjs && node scripts/fix-dry-goods-structure.mjs && node scripts/fix-shipper-double-count.mjs && node scripts/setup-company-records.mjs && node scripts/setup-historical-financials.mjs && node scripts/flag-default-admin.mjs && next start",
     "db:migrate": "prisma migrate deploy"
   },
   "dependencies": {

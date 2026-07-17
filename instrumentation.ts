@@ -29,6 +29,30 @@ export async function register() {
   setTimeout(() => run("boot"), 30_000).unref?.();
   setInterval(() => run("daily"), 24 * 60 * 60 * 1000).unref?.();
 
+  // Offsite copies (DB snapshot + media) to the S3-compatible bucket, if
+  // configured — the local disk is a single point of failure without this.
+  const { runOffsiteBackup, offsiteConfigured, diskUsage } = await import("./lib/offsite");
+  if (offsiteConfigured()) {
+    const offsite = () =>
+      runOffsiteBackup()
+        .then((s) =>
+          console.log(
+            `offsite: snapshot ${s.snapshot || "FAILED"}, media +${s.mediaUploaded}/${s.mediaSkipped} existing` +
+              (s.errors.length ? `, errors: ${s.errors.join("; ")}` : "")
+          )
+        )
+        .catch((e) => console.error("offsite backup failed:", e));
+    setTimeout(offsite, 90_000).unref?.();
+    setInterval(offsite, 24 * 60 * 60 * 1000).unref?.();
+    console.log("offsite: nightly S3 backup armed");
+  } else {
+    console.warn("offsite: OFFSITE_S3_* not set — backups exist only on the local disk");
+  }
+  const disk = diskUsage();
+  if (disk && disk.usedPct >= 85) {
+    console.warn(`disk: data volume ${disk.usedPct}% full — clean up or resize soon`);
+  }
+
   // Meta (IG/FB) content worker: publish due posts every minute, refresh
   // post analytics twice a day. No-ops unless META_* env vars are set.
   const { runPublisherTick, runMetricsRefresh, metaConfigured } = await import("./lib/meta");

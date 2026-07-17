@@ -21,6 +21,7 @@ async function main() {
       email: "admin@denada.com",
       name: "Admin",
       passwordHash: await bcrypt.hash("denada123", 12),
+      mustChangePassword: true, // known seed password — must be rotated on first login
       role: "ADMIN",
     },
   });

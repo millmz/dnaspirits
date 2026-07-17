@@ -2,8 +2,9 @@ import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getComponentStock } from "@/lib/inventory";
 import { money, num } from "@/lib/format";
-import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
-import { createComponent, updateComponent, adjustComponent, createSupplier } from "./actions";
+import Link from "next/link";
+import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
+import { createComponent, updateComponent, editComponentDetails, toggleComponentActive, adjustComponent, createSupplier, updateSupplier } from "./actions";
 
 const CATEGORIES = [
   ["GLASS", "Glass"],
@@ -17,22 +18,32 @@ const CATEGORIES = [
 
 const catLabel = (k: string) => CATEGORIES.find(([c]) => c === k)?.[1] ?? k;
 
-export default async function ComponentsPage() {
+export default async function ComponentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ err?: string; edit?: string; editSupplier?: string; movements?: string }>;
+}) {
   await requireOps();
-  const [components, suppliers, stock, movements] = await Promise.all([
+  const { err, edit, editSupplier, movements: movementsFilter } = await searchParams;
+  const [components, retired, suppliers, stock, movements] = await Promise.all([
     db.component.findMany({
       where: { active: true },
       orderBy: [{ category: "asc" }, { name: "asc" }],
       include: { supplier: true },
     }),
+    db.component.findMany({ where: { active: false }, orderBy: { name: "asc" } }),
     db.supplier.findMany({ orderBy: { name: "asc" } }),
     getComponentStock(),
     db.componentMovement.findMany({
+      where: movementsFilter ? { componentId: movementsFilter } : undefined,
       orderBy: { date: "desc" },
-      take: 15,
+      take: movementsFilter ? 100 : 15,
       include: { component: true },
     }),
   ]);
+  const editing = edit ? components.find((c) => c.id === edit) ?? retired.find((c) => c.id === edit) : null;
+  const editingSupplier = editSupplier ? suppliers.find((s) => s.id === editSupplier) : null;
+  const movementComponent = movementsFilter ? [...components, ...retired].find((c) => c.id === movementsFilter) : null;
 
   const today = new Date().toISOString().slice(0, 10);
   const low = components.filter(
@@ -46,6 +57,12 @@ export default async function ComponentsPage() {
         title="Dry Goods"
         subtitle="Every physical piece of the product — glass, labels, stoppers, capsules, shipper boxes, bulk tequila — with live on-hand counts and reorder flags."
       />
+
+      {err && (
+        <div className="mb-4">
+          <Callout tone="red">{err}</Callout>
+        </div>
+      )}
 
       {low.length > 0 && (
         <div className="mb-5 rounded-md bg-burnt/10 px-4 py-3 text-sm text-burnt">
@@ -72,7 +89,7 @@ export default async function ComponentsPage() {
                     <form id={formId} action={updateComponent}>
                       <input type="hidden" name="id" value={c.id} />
                     </form>
-                    {c.name}
+                    <Link href={`/components?edit=${c.id}`} className="hover:underline">{c.name}</Link>
                   </Td>
                   <Td><Badge>{catLabel(c.category)}</Badge></Td>
                   <Td>{c.supplier?.name ?? "—"}</Td>
@@ -105,9 +122,14 @@ export default async function ComponentsPage() {
                   </Td>
                   <Td>{isLow ? <Badge tone="red">Reorder</Badge> : <Badge tone="green">OK</Badge>}</Td>
                   <Td>
-                    <button form={formId} className="text-xs font-medium text-agave-deep hover:underline">
-                      Save
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button form={formId} className="text-xs font-medium text-agave-deep hover:underline">
+                        Save
+                      </button>
+                      <Link href={`/components?movements=${c.id}`} className="text-xs text-slate/60 hover:underline">
+                        History
+                      </Link>
+                    </div>
                   </Td>
                 </tr>
               );
@@ -116,11 +138,54 @@ export default async function ComponentsPage() {
         )}
         <p className="mt-3 text-xs text-slate/70">
           Unit cost, lead time and reorder point are editable in place — cost changes update product COGS
-          automatically through the BOMs. Costs also refresh when a purchase order is received.
+          automatically through the BOMs. Click a component's name to edit its details or retire it;
+          “History” shows its full movement ledger.
         </p>
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        {editing ? (
+          <Card title={`Edit ${editing.name}`}>
+            <form action={editComponentDetails} className="space-y-3">
+              <input type="hidden" name="id" value={editing.id} />
+              <Field label="Name">
+                <input name="name" required defaultValue={editing.name} className={inputCls} />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Category">
+                  <select name="category" defaultValue={editing.category} className={inputCls}>
+                    {CATEGORIES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Unit">
+                  <select name="unit" defaultValue={editing.unit} className={inputCls}>
+                    <option value="pcs">pieces</option>
+                    <option value="liters">liters</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="Supplier">
+                <select name="supplierId" defaultValue={editing.supplierId ?? ""} className={inputCls}>
+                  <option value="">— none —</option>
+                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Notes">
+                <input name="notes" defaultValue={editing.notes} className={inputCls} />
+              </Field>
+              <div className="flex items-center gap-3">
+                <button className={btnCls}>Save changes</button>
+                <Link href="/components" className={btnSecondaryCls}>Cancel</Link>
+              </div>
+            </form>
+            <form action={toggleComponentActive} className="mt-4 border-t border-ink/10 pt-3">
+              <input type="hidden" name="id" value={editing.id} />
+              <button className="text-xs text-slate/60 hover:text-burnt">
+                {editing.active ? "Retire this component (hides it from forms; history kept)" : "Reactivate this component"}
+              </button>
+            </form>
+          </Card>
+        ) : (
         <Card title="Add component">
           <form action={createComponent} className="space-y-3">
             <Field label="Name">
@@ -159,6 +224,7 @@ export default async function ComponentsPage() {
             <button className={btnCls}>Add component</button>
           </form>
         </Card>
+        )}
 
         <Card title="Adjust count">
           <form action={adjustComponent} className="space-y-3">
@@ -185,6 +251,34 @@ export default async function ComponentsPage() {
           </form>
         </Card>
 
+        {editingSupplier ? (
+          <Card title={`Edit ${editingSupplier.name}`}>
+            <form action={updateSupplier} className="space-y-3">
+              <input type="hidden" name="id" value={editingSupplier.id} />
+              <Field label="Name">
+                <input name="name" required defaultValue={editingSupplier.name} className={inputCls} />
+              </Field>
+              <Field label="Location">
+                <input name="location" defaultValue={editingSupplier.location} className={inputCls} />
+              </Field>
+              <Field label="Contact">
+                <input name="contactName" defaultValue={editingSupplier.contactName} className={inputCls} />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Email">
+                  <input name="email" type="email" defaultValue={editingSupplier.email} className={inputCls} />
+                </Field>
+                <Field label="Phone">
+                  <input name="phone" defaultValue={editingSupplier.phone} className={inputCls} />
+                </Field>
+              </div>
+              <div className="flex items-center gap-3">
+                <button className={btnCls}>Save supplier</button>
+                <Link href="/components" className={btnSecondaryCls}>Cancel</Link>
+              </div>
+            </form>
+          </Card>
+        ) : (
         <Card title="Add supplier">
           <form action={createSupplier} className="space-y-3">
             <Field label="Name">
@@ -206,11 +300,26 @@ export default async function ComponentsPage() {
             </div>
             <button className={btnCls}>Add supplier</button>
           </form>
+          <p className="mt-3 text-xs text-slate/70">
+            Edit an existing supplier:{" "}
+            {suppliers.map((s, i) => (
+              <span key={s.id}>
+                {i > 0 && " · "}
+                <Link href={`/components?editSupplier=${s.id}`} className="text-agave-deep hover:underline">{s.name}</Link>
+              </span>
+            ))}
+          </p>
         </Card>
+        )}
       </div>
 
       <div className="mt-6">
-        <Card title="Recent movements">
+        <Card title={movementComponent ? `Movement history — ${movementComponent.name}` : "Recent movements"}>
+          {movementComponent && (
+            <Link href="/components" className="brand-heading mb-3 inline-block text-xs text-agave hover:underline">
+              ← Back to recent movements
+            </Link>
+          )}
           {movements.length === 0 ? (
             <EmptyState>No movements yet.</EmptyState>
           ) : (

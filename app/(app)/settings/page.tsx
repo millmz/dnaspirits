@@ -2,8 +2,9 @@ import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { num, dateStr } from "@/lib/format";
 import { listBackups } from "@/lib/backup";
+import { offsiteConfigured, lastOffsiteStatus, diskUsage } from "@/lib/offsite";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
-import { createUser, deleteUser, changeOwnPassword, createWarehouse, backupNow } from "./actions";
+import { createUser, deleteUser, resetUserPassword, changeOwnPassword, createWarehouse, backupNow } from "./actions";
 
 export default async function SettingsPage() {
   const me = await requireAdmin();
@@ -12,6 +13,9 @@ export default async function SettingsPage() {
     db.warehouse.findMany({ orderBy: { name: "asc" } }),
   ]);
   const backups = listBackups();
+  const offsiteOn = offsiteConfigured();
+  const offsite = lastOffsiteStatus();
+  const disk = diskUsage();
 
   return (
     <div>
@@ -27,11 +31,25 @@ export default async function SettingsPage() {
                 <Td>{u.role === "ADMIN" ? <Badge tone="green">Admin</Badge> : <Badge>Member</Badge>}</Td>
                 <Td>
                   {u.id !== me.id && (
-                    <form action={deleteUser}>
-                      <input type="hidden" name="id" value={u.id} />
-                      <button className="text-xs text-stone-400 hover:text-red-600">Remove</button>
-                    </form>
+                    <div className="flex flex-col gap-1">
+                      <form action={resetUserPassword} className="flex items-center gap-1">
+                        <input type="hidden" name="id" value={u.id} />
+                        <input
+                          name="password"
+                          type="text"
+                          minLength={12}
+                          placeholder="New temp password"
+                          className="w-36 rounded border border-ink/15 bg-white px-1.5 py-0.5 text-xs"
+                        />
+                        <button className="text-xs font-medium text-agave-deep hover:underline">Reset</button>
+                      </form>
+                      <form action={deleteUser}>
+                        <input type="hidden" name="id" value={u.id} />
+                        <button className="text-left text-xs text-stone-400 hover:text-red-600">Remove</button>
+                      </form>
+                    </div>
                   )}
+                  {u.mustChangePassword && <Badge tone="amber">Temp password</Badge>}
                 </Td>
               </tr>
             ))}
@@ -62,7 +80,7 @@ export default async function SettingsPage() {
             </div>
             <button className={btnCls}>Add user</button>
             <p className="text-xs text-stone-400">
-              Share the temporary password with them directly and have them change it after signing in.
+              Share the temporary password with them directly — they'll be required to choose their own the first time they sign in.
             </p>
           </form>
         </Card>
@@ -126,9 +144,32 @@ export default async function SettingsPage() {
           <form action={backupNow} className="mt-3">
             <button className={btnCls}>Back up now</button>
           </form>
+          <div className="mt-3 rounded-md border border-ink/10 bg-white/60 px-3 py-2 text-xs leading-relaxed">
+            {offsiteOn ? (
+              <>
+                <span className="font-medium text-agave-deep">Offsite backups: on.</span>{" "}
+                {offsite
+                  ? `Last run ${offsite.at.slice(0, 16).replace("T", " ")} UTC — snapshot ${offsite.snapshot ? "uploaded" : "FAILED"}, ${offsite.mediaUploaded} new media file(s) uploaded${offsite.errors.length ? ` · ${offsite.errors.length} error(s), see logs` : ""}.`
+                  : "First nightly run hasn't happened yet."}
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-burnt">Offsite backups: OFF.</span> The database, its
+                snapshots and all post media live on one disk — set the{" "}
+                <span className="font-mono">OFFSITE_S3_*</span> env vars in Render (any S3-compatible
+                bucket: Cloudflare R2, AWS S3, Backblaze) to copy them offsite nightly.
+              </>
+            )}
+            {disk && (
+              <div className={`mt-1 ${disk.usedPct >= 85 ? "font-medium text-burnt" : "text-slate/70"}`}>
+                Data disk: {disk.usedPct}% used ({Math.round(disk.freeBytes / 1024 / 1024)} MB free
+                of {Math.round(disk.totalBytes / 1024 / 1024)} MB)
+                {disk.usedPct >= 85 && " — clean up old media or resize the disk soon."}
+              </div>
+            )}
+          </div>
           <p className="mt-2 text-xs leading-relaxed text-slate/70">
             Snapshots are consistent copies of the live database, rotated automatically (14 kept on disk).
-            Download one monthly and keep it somewhere else — on-disk backups don&apos;t survive the disk itself.
           </p>
         </Card>
       </div>

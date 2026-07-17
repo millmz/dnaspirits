@@ -1,10 +1,12 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireOps } from "@/lib/auth";
 import { toCents, toFloat, toDate } from "@/lib/format";
 import { recalcProductsUsingComponents } from "@/lib/bom-cost";
+import { getComponentStock } from "@/lib/inventory";
 
 const MAX_LINES = 5;
 
@@ -24,12 +26,17 @@ export async function createPO(formData: FormData) {
     }
     lines.push({ componentId, qty, unitCostCents });
   }
-  if (lines.length === 0) return;
+  if (lines.length === 0) redirect("/purchasing?err=Add+at+least+one+line+with+a+component+and+quantity");
+
+  const poNumber = String(formData.get("poNumber") ?? "").trim().toUpperCase();
+  if (await db.purchaseOrder.findUnique({ where: { poNumber } })) {
+    redirect(`/purchasing?err=${encodeURIComponent(`PO number ${poNumber} already exists — pick another.`)}`);
+  }
 
   const expectedRaw = String(formData.get("expectedDate") ?? "").trim();
   await db.purchaseOrder.create({
     data: {
-      poNumber: String(formData.get("poNumber") ?? "").trim().toUpperCase(),
+      poNumber,
       supplierId: String(formData.get("supplierId")),
       orderDate: toDate(formData.get("orderDate") as string),
       expectedDate: expectedRaw ? toDate(expectedRaw) : null,
@@ -81,6 +88,45 @@ export async function receivePO(formData: FormData) {
   await recalcProductsUsingComponents(po.lines.map((l) => l.componentId));
   revalidatePath("/purchasing");
   revalidatePath("/products");
+  revalidatePath("/components");
+  revalidatePath("/");
+}
+
+/**
+ * Undo a mistaken receipt: removes the stock the receipt added and puts the
+ * PO back to ORDERED. Refuses if the stock has since been used (a reversal
+ * would drive a component negative). Unit costs are left as-is.
+ */
+export async function unreceivePO(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  const po = await db.purchaseOrder.findUniqueOrThrow({
+    where: { id },
+    include: { lines: { include: { component: true } } },
+  });
+  if (po.status !== "RECEIVED") return;
+
+  const stock = await getComponentStock();
+  const short = po.lines.filter((l) => (stock.get(l.componentId) ?? 0) < l.qty);
+  if (short.length > 0) {
+    const msg = short.map((l) => l.component.name).join(", ");
+    redirect(
+      `/purchasing?err=${encodeURIComponent(
+        `Can't un-receive ${po.poNumber} — some of that stock has already been used (${msg}).`
+      )}`
+    );
+  }
+
+  await db.$transaction([
+    db.componentMovement.deleteMany({
+      where: { type: "PO_RECEIPT", reference: po.poNumber },
+    }),
+    db.purchaseOrder.update({
+      where: { id },
+      data: { status: "ORDERED", receivedDate: null },
+    }),
+  ]);
+  revalidatePath("/purchasing");
   revalidatePath("/components");
   revalidatePath("/");
 }
