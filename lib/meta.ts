@@ -481,6 +481,60 @@ export async function metaDiagnostics(): Promise<MetaCheck[]> {
   return checks;
 }
 
+export type PageTokenResult =
+  | { ok: true; pages: { id: string; name: string; token: string }[] }
+  | { ok: false; error: string };
+
+/**
+ * Turn a short-lived user token from Graph API Explorer into long-lived
+ * Page tokens: exchange for a long-lived user token, then list the user's
+ * Pages (each carries its own permanent Page token). Credentials pass
+ * through transiently — nothing is stored or logged.
+ */
+export async function exchangeForPageTokens(
+  appId: string,
+  appSecret: string,
+  shortToken: string
+): Promise<PageTokenResult> {
+  const get = async (path: string) => {
+    const res = await fetch(`${GRAPH()}${path}`, { signal: AbortSignal.timeout(30_000) });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { okStatus: res.ok, status: res.status, json };
+  };
+  const apiError = (json: Record<string, unknown>, fallback: string) =>
+    (json?.error as { message?: string } | undefined)?.message || fallback;
+
+  try {
+    const ex = await get(
+      `/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +
+        `&client_secret=${encodeURIComponent(appSecret)}&fb_exchange_token=${encodeURIComponent(shortToken)}`
+    );
+    const longToken = String((ex.json as { access_token?: unknown }).access_token ?? "");
+    if (!ex.okStatus || !longToken) {
+      return { ok: false, error: apiError(ex.json, `Token exchange failed (${ex.status}).`) };
+    }
+
+    const acc = await get(`/me/accounts?access_token=${encodeURIComponent(longToken)}&limit=100`);
+    if (!acc.okStatus) {
+      return { ok: false, error: apiError(acc.json, `Could not list your Pages (${acc.status}).`) };
+    }
+    const pages = ((acc.json.data as Array<Record<string, unknown>> | undefined) ?? [])
+      .map((p) => ({ id: String(p.id ?? ""), name: String(p.name ?? ""), token: String(p.access_token ?? "") }))
+      .filter((p) => p.id && p.token);
+    if (pages.length === 0) {
+      return {
+        ok: false,
+        error:
+          "The token works, but no Pages came back — when generating it, make sure the De-Nada Tequila Page " +
+          "is selected in the popup and the pages_show_list permission is added.",
+      };
+    }
+    return { ok: true, pages };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Meta could not be reached." };
+  }
+}
+
 /** Refresh metrics for all published posts. Returns how many were updated. */
 export async function runMetricsRefresh(): Promise<{ updated: number; errors: string[] }> {
   if (!metaConfigured()) return { updated: 0, errors: ["Meta is not connected."] };

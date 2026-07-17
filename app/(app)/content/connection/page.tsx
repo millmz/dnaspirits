@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { metaConfigured, metaDiagnostics } from "@/lib/meta";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
+import { TokenHelper } from "@/components/token-helper";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +65,9 @@ export default async function ConnectionPage() {
             <ol className="list-decimal space-y-3 pl-5 text-sm leading-relaxed text-ink/90">
               <li>
                 Open <span className="font-medium">developers.facebook.com</span> → Tools →{" "}
-                <span className="font-medium">Graph API Explorer</span>, and pick your De Nada app (top right).
+                <span className="font-medium">Graph API Explorer</span>, pick your De Nada app (top right), and
+                make sure the domain dropdown in the top bar says{" "}
+                <span className="font-mono">graph.facebook.com</span> — NOT graph.instagram.com.
               </li>
               <li>
                 Under <span className="font-medium">Permissions</span>, add ALL of these (type each and pick it
@@ -79,28 +82,17 @@ export default async function ConnectionPage() {
                 De-Nada Tequila Page AND the Instagram account are both selected in the popup.
               </li>
               <li>
-                Make it long-lived: paste this in a browser tab, replacing SHORT_TOKEN with the token you just
-                generated, and APP_SECRET with the app secret from App Settings → Basic:
-                <div className="mt-1 break-all rounded-md bg-white px-3 py-2 font-mono text-[11px]">
-                  https://graph.facebook.com/v23.0/oauth/access_token?grant_type=fb_exchange_token&amp;client_id=YOUR_APP_ID&amp;client_secret=APP_SECRET&amp;fb_exchange_token=SHORT_TOKEN
-                </div>
-                Copy the long <span className="font-mono">access_token</span> from the response.
+                Copy the token with the <span className="font-medium">copy icon</span> next to the token box
+                (don&apos;t select the text by hand — it gets cut off), then paste it into the helper below. It
+                does the long-lived exchange and finds the Page token for you.
               </li>
-              <li>
-                Get the PAGE token: paste this with the long-lived token from the previous step:
-                <div className="mt-1 break-all rounded-md bg-white px-3 py-2 font-mono text-[11px]">
-                  https://graph.facebook.com/v23.0/me/accounts?access_token=LONG_LIVED_TOKEN
-                </div>
-                In the response, find the De-Nada Tequila entry and copy ITS{" "}
-                <span className="font-mono">access_token</span> — that is the Page token.
-              </li>
-              <li>
-                In Render → your service → <span className="font-medium">Environment</span>, replace{" "}
-                <span className="font-mono">META_ACCESS_TOKEN</span> with that Page token and save (the service
-                restarts itself).
-              </li>
-              <li>Come back here and hit “Re-run checks” — everything should show ✓.</li>
             </ol>
+          </Card>
+        )}
+
+        {configured && (
+          <Card title="Page token helper">
+            <TokenHelper defaultAppId="1539622081002142" />
           </Card>
         )}
       </div>
