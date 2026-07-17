@@ -313,6 +313,11 @@ export default async function ContentPage({
                             <input type="hidden" name="id" value={p.id} />
                             <button className="font-medium underline">Retry</button>
                           </form>
+                          {me?.role === "ADMIN" && (
+                            <Link href="/content/connection" className="font-medium underline">
+                              Diagnose connection
+                            </Link>
+                          )}
                         </div>
                       )}
                       {(p.caption || p.hashtags || p.assetUrl) && (
@@ -423,6 +428,9 @@ export default async function ContentPage({
                     Scheduled posts publish automatically; analytics refresh twice a day (or on demand from the
                     analytics page).
                   </p>
+                  <Link href="/content/connection" className="brand-heading inline-block text-xs text-agave hover:underline">
+                    Run connection check →
+                  </Link>
                 </div>
               ) : (
                 <div className="space-y-2 text-xs leading-relaxed text-slate/80">

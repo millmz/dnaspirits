@@ -48,10 +48,10 @@ export function appBaseUrl(): string {
 async function graph(
   path: string,
   params: Record<string, string>,
-  method: "GET" | "POST" = "GET"
+  method: "GET" | "POST" | "DELETE" = "GET"
 ): Promise<Record<string, unknown>> {
   const qs = new URLSearchParams({ ...params, access_token: process.env.META_ACCESS_TOKEN ?? "" });
-  const url = method === "GET" ? `${GRAPH()}${path}?${qs}` : `${GRAPH()}${path}`;
+  const url = method === "POST" ? `${GRAPH()}${path}` : `${GRAPH()}${path}?${qs}`;
   const res = await fetch(url, {
     method,
     ...(method === "POST"
@@ -370,6 +370,115 @@ export async function snapshotPostMetrics(p: {
       data: { postId: p.id, platform: "FACEBOOK", views, reach, likes, comments, shares, saves: 0 },
     });
   }
+}
+
+export type MetaCheck = { label: string; ok: boolean; detail: string };
+
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : "request failed");
+
+/**
+ * Safe, side-effect-free connection checks (the one write test creates a
+ * HIDDEN Facebook draft and deletes it immediately — followers never see it).
+ * Turns opaque publish failures like "(#200) publish_actions" into plain
+ * language before any real post is attempted.
+ */
+export async function metaDiagnostics(): Promise<MetaCheck[]> {
+  const checks: MetaCheck[] = [];
+  const pageId = process.env.META_FB_PAGE_ID ?? "";
+  const igId = process.env.META_IG_USER_ID ?? "";
+
+  if (!process.env.META_ACCESS_TOKEN) {
+    return [{ label: "Access token", ok: false, detail: "META_ACCESS_TOKEN is not set in Render." }];
+  }
+
+  // 1. Who does this token belong to? Publishing needs the PAGE's own token.
+  try {
+    const me = await graph("/me", { fields: "id,name" });
+    const isPage = pageId !== "" && String(me.id) === pageId;
+    checks.push({
+      label: "Token identity",
+      ok: isPage,
+      detail: isPage
+        ? `The token belongs to your Page "${me.name}" — correct.`
+        : `The token belongs to "${me.name}" (id ${me.id}), not your Page (id ${pageId || "unset"}). ` +
+          "This is a personal/user token — paste the PAGE access token instead (from /me/accounts).",
+    });
+  } catch (e) {
+    checks.push({
+      label: "Token identity",
+      ok: false,
+      detail: `Meta rejected the token: ${errMsg(e)}. It has likely expired or been invalidated — generate a fresh Page token.`,
+    });
+    return checks; // nothing else can pass with a dead token
+  }
+
+  // 2. Facebook posting permission — hidden draft, created then deleted.
+  if (pageId) {
+    try {
+      const draft = await graph(
+        `/${pageId}/feed`,
+        { message: "De Nada Ops connection test — auto-deleted, safe to ignore.", published: "false" },
+        "POST"
+      );
+      const draftId = String(draft.id ?? "");
+      if (draftId) {
+        try {
+          await graph(`/${draftId}`, {}, "DELETE");
+        } catch {
+          // cleanup is best-effort; an unpublished draft is invisible anyway
+        }
+      }
+      checks.push({
+        label: "Facebook posting",
+        ok: true,
+        detail: "Created and removed a hidden test draft — posting permission works.",
+      });
+    } catch (e) {
+      checks.push({
+        label: "Facebook posting",
+        ok: false,
+        detail:
+          `${errMsg(e)} — the token is missing the pages_manage_posts permission. ` +
+          "Regenerate it with that permission ticked (see the steps below).",
+      });
+    }
+  }
+
+  // 3. Instagram account reachable with this token.
+  if (igId) {
+    try {
+      const igu = await graph(`/${igId}`, { fields: "username" });
+      checks.push({ label: "Instagram account", ok: true, detail: `Connected to @${igu.username}.` });
+    } catch (e) {
+      checks.push({
+        label: "Instagram account",
+        ok: false,
+        detail: `${errMsg(e)} — check META_IG_USER_ID and that the token was generated with the Instagram permissions.`,
+      });
+    }
+    try {
+      await graph(`/${igId}/media`, { limit: "1" });
+      checks.push({ label: "Instagram media access", ok: true, detail: "Can read the account's media list." });
+    } catch (e) {
+      checks.push({
+        label: "Instagram media access",
+        ok: false,
+        detail: `${errMsg(e)} — the token likely lacks instagram_basic/instagram_content_publish.`,
+      });
+    }
+  }
+
+  if (!appBaseUrl()) {
+    checks.push({
+      label: "Public media URL",
+      ok: false,
+      detail: "APP_URL is not set — Meta can't download uploaded photos/videos when publishing.",
+    });
+  } else {
+    checks.push({ label: "Public media URL", ok: true, detail: `Meta will fetch media from ${appBaseUrl()}.` });
+  }
+
+  return checks;
 }
 
 /** Refresh metrics for all published posts. Returns how many were updated. */
