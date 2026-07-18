@@ -1,6 +1,7 @@
 import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { money, num, dateStr } from "@/lib/format";
+import Link from "next/link";
 import { PageHeader, Card, Badge, Field, Table, Td, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
 import { createSale, confirmSale, unconfirmSale, markPaid, markUnpaid, recordPayment, deleteDraft, createChargeback, deleteChargeback } from "./actions";
 
@@ -99,7 +100,12 @@ export default async function SalesPage({
                           )}
                         </div>
                       )}
-                      <div className="mt-3 flex gap-2">
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {s.status !== "DRAFT" && (
+                          <Link href={`/invoice/${s.id}`} className="brand-heading px-1 py-1.5 text-xs text-agave hover:underline">
+                            Invoice ↗
+                          </Link>
+                        )}
                         {s.status === "DRAFT" && (
                           <>
                             <form action={confirmSale}>

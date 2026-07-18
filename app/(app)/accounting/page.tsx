@@ -62,6 +62,15 @@ export default async function AccountingPage({
     0
   );
   const receivablesCents = receivables.totalNetCents;
+  // simple 90-day cash picture: invoices due in vs. committed open POs out
+  const in90 = Date.now() + 90 * 86_400_000;
+  const cashIn90 = receivables.items
+    .filter((i) => !i.dueDate || i.dueDate.getTime() <= in90)
+    .reduce((a, i) => a + i.netDueCents, 0);
+  const openPoLines = await db.purchaseOrderLine.findMany({
+    where: { po: { status: "ORDERED" } },
+  });
+  const cashOut90 = openPoLines.reduce((a, l) => a + Math.round(l.qty * l.unitCostCents), 0);
   const chargebacksTotalYtd = chargebacksYtd.reduce((a, c) => a + (c._sum.amountCents ?? 0), 0);
   const netRevenueCents = revenueCents - chargebacksTotalYtd; // after trade spend
   const appliedCreditsOpen = receivables.items.reduce((a, i) => a + i.creditsCents, 0);
@@ -175,6 +184,18 @@ export default async function AccountingPage({
                 <Stat label="31–60 days" value={money(receivables.aging.d31to60)} tone={receivables.aging.d31to60 > 0 ? "reposado" : "ink"} />
                 <Stat label="61–90 days" value={money(receivables.aging.d61to90)} tone={receivables.aging.d61to90 > 0 ? "reposado" : "ink"} />
                 <Stat label="90+ days" value={money(receivables.aging.d90plus)} tone={receivables.aging.d90plus > 0 ? "burnt" : "ink"} />
+              </div>
+            )}
+            {(cashIn90 > 0 || cashOut90 > 0) && (
+              <div className="mt-3 rounded-md border border-ink/10 bg-white/60 px-3 py-2 text-sm">
+                <span className="brand-heading text-xs tracking-widest text-slate">Next 90 days: </span>
+                <span className="text-agave-deep">+{money(cashIn90)} expected in</span>
+                <span className="text-slate/60"> (invoices due) · </span>
+                <span className="text-burnt">−{money(cashOut90)} committed out</span>
+                <span className="text-slate/60"> (open POs) · net </span>
+                <span className={`font-medium ${cashIn90 - cashOut90 >= 0 ? "text-agave-deep" : "text-burnt"}`}>
+                  {cashIn90 - cashOut90 >= 0 ? "+" : "−"}{money(Math.abs(cashIn90 - cashOut90))}
+                </span>
               </div>
             )}
             {anyOverCredited && (

@@ -19,6 +19,14 @@ export const metadata: Metadata = {
   title: "De Nada Tequila — Operations",
   description:
     "Supply chain, market intelligence, marketing, and finance for Tequila De Nada",
+  // installable as a home-screen app on phones ("Add to Home Screen")
+  manifest: "/manifest.json",
+  icons: { icon: "/icon-192.png", apple: "/icon-180.png" },
+  appleWebApp: { capable: true, title: "De Nada", statusBarStyle: "default" },
+};
+
+export const viewport = {
+  themeColor: "#231F20",
 };
 
 export default function RootLayout({

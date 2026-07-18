@@ -6,6 +6,10 @@ import { getMarketPosition } from "@/lib/market";
 import { getOpenReceivables } from "@/lib/receivables";
 import { money, num, dateStr, currentPeriod } from "@/lib/format";
 import { Card, Stat, Table, Td, Badge, TierBadge, EmptyState, PageHeader } from "@/components/ui";
+import { computeAlerts } from "@/lib/alerts";
+import { emailEnabled } from "@/lib/email";
+import { agentEnabled } from "@/lib/agent";
+import { AskWidget } from "@/components/ask-widget";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +44,7 @@ export default async function Dashboard() {
       }),
     ]);
 
+  const alerts = await computeAlerts();
   const fgCases = stock.reduce((a, s) => a + Math.floor(s.totalBottles / s.bottlesPerCase), 0);
   const channelCases = position.reduce((a, p) => a + p.channelCases, 0);
   const receivables = unpaid.totalNetCents;
@@ -56,6 +61,33 @@ export default async function Dashboard() {
         title="Dashboard"
         subtitle="From agave to account — the whole operation at a glance."
       />
+
+      {alerts.length > 0 && (
+        <div className="mb-5 rounded-lg border border-burnt/25 bg-white/70 p-4">
+          <div className="brand-heading mb-2 text-xs font-medium tracking-widest text-burnt">
+            Needs attention ({alerts.length})
+          </div>
+          <ul className="space-y-1 text-sm">
+            {alerts.map((a, i) => (
+              <li key={i}>
+                <Link href={a.href} className="group flex items-start gap-2 hover:underline">
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${a.severity === "red" ? "bg-burnt" : "bg-reposado"}`} />
+                  <span>
+                    <span className="font-medium">{a.area}:</span> {a.message}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {!emailEnabled() && (
+            <p className="mt-2 text-xs text-slate/70">
+              Want these in your inbox? Set RESEND_API_KEY and ALERT_EMAIL_TO in Render — see Settings.
+            </p>
+          )}
+        </div>
+      )}
+
+      {agentEnabled() && <AskWidget />}
 
       {legalDue.length > 0 && (
         <div className="mb-6 rounded-md border border-reposado/40 bg-reposado/10 p-4">

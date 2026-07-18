@@ -51,6 +51,13 @@ model AccountMetric {
   @@index([platform, fetchedAt])
 }
 
+// Small key-value store: alert send markers, investor-update commentary, etc.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 // Sign-in audit trail (successes and failures), pruned after 90 days.
 model LoginEvent {
   id        String   @id @default(cuid())

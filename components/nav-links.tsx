@@ -93,6 +93,7 @@ export function NavLinks({ role }: { role: string }) {
             </div>
             {link({ href: "/captable", label: "Cap Table" })}
             {link({ href: "/legal", label: "Legal & IP" })}
+            {link({ href: "/investor-update", label: "Investor Update" })}
           </div>
           <div className="pb-1">
             <div className="brand-heading px-2 pb-1 pt-3 text-[10px] font-medium tracking-widest text-blanco">

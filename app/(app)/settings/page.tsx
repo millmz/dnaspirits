@@ -4,10 +4,16 @@ import { num, dateStr } from "@/lib/format";
 import { listBackups } from "@/lib/backup";
 import { offsiteConfigured, lastOffsiteStatus, diskUsage } from "@/lib/offsite";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
-import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow } from "./actions";
+import { emailEnabled, emailRecipients } from "@/lib/email";
+import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow, sendTestAlertEmail } from "./actions";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mail?: string }>;
+}) {
   const me = await requireAdmin();
+  const { mail } = await searchParams;
   const [users, warehouses, loginEvents] = await Promise.all([
     db.user.findMany({ orderBy: { createdAt: "asc" } }),
     db.warehouse.findMany({ orderBy: { name: "asc" } }),
@@ -121,6 +127,35 @@ export default async function SettingsPage() {
             </Field>
             <button className={btnCls}>Add</button>
           </form>
+        </Card>
+
+        <Card title="Email alerts & weekly digest">
+          {mail && (
+            <div className={`mb-3 rounded-md px-3 py-2 text-sm ${mail === "sent" ? "bg-agave/10 text-agave-deep" : "bg-burnt/10 text-burnt"}`}>
+              {mail === "sent" ? "Test digest sent — check your inbox." : `Send failed: ${mail}`}
+            </div>
+          )}
+          {emailEnabled() ? (
+            <>
+              <p className="text-sm text-ink/85">
+                <span className="font-medium text-agave-deep">On.</span> Daily "needs attention" email
+                (only when something's wrong) and a Monday digest go to{" "}
+                <span className="font-mono text-xs">{emailRecipients().join(", ")}</span>.
+              </p>
+              <form action={sendTestAlertEmail} className="mt-3">
+                <button className={btnCls}>Send test digest now</button>
+              </form>
+            </>
+          ) : (
+            <p className="text-sm leading-relaxed text-ink/85">
+              <span className="font-medium text-burnt">Off.</span> To get alerts (publish failures,
+              overdue invoices, low stock, legal deadlines) and a Monday digest by email: create a free
+              account at <span className="font-medium">resend.com</span>, then set{" "}
+              <span className="font-mono text-xs">RESEND_API_KEY</span> and{" "}
+              <span className="font-mono text-xs">ALERT_EMAIL_TO</span> (comma-separated recipients) in
+              Render.
+            </p>
+          )}
         </Card>
 
         <Card title="Sign-in activity">

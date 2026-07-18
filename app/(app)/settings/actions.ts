@@ -75,6 +75,14 @@ export async function forceSignOut(formData: FormData) {
   revalidatePath("/settings");
 }
 
+export async function sendTestAlertEmail() {
+  await requireAdmin();
+  const { sendTestDigest } = await import("@/lib/alerts");
+  const r = await sendTestDigest();
+  const { redirect } = await import("next/navigation");
+  redirect(r.ok ? "/settings?mail=sent" : `/settings?mail=${encodeURIComponent(r.error ?? "failed")}`);
+}
+
 export async function backupNow() {
   await requireAdmin();
   const { backupDatabase } = await import("@/lib/backup");

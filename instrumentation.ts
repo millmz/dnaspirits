@@ -85,6 +85,20 @@ export async function register() {
     console.warn(`disk: data volume ${disk.usedPct}% full — clean up or resize soon`);
   }
 
+  // Email alerts: hourly check sends at most one "needs attention" mail per
+  // day (only when something's wrong) and a Monday digest. No-ops unless
+  // RESEND_API_KEY + ALERT_EMAIL_TO are set.
+  const { runAlertWorker } = await import("./lib/alerts");
+  const { emailEnabled } = await import("./lib/email");
+  if (emailEnabled()) {
+    const alertTick = () => runAlertWorker().catch((e) => console.error("alerts: worker failed:", e));
+    setTimeout(alertTick, 2 * 60 * 1000).unref?.();
+    setInterval(alertTick, 60 * 60 * 1000).unref?.();
+    console.log("alerts: email worker armed (hourly check, daily send window)");
+  } else {
+    console.warn("alerts: RESEND_API_KEY / ALERT_EMAIL_TO not set — email alerts off");
+  }
+
   // Meta (IG/FB) content worker: publish due posts every minute, refresh
   // post analytics twice a day. No-ops unless META_* env vars are set.
   const { runPublisherTick, runMetricsRefresh, importLiveFeed, metaConfigured } = await import("./lib/meta");

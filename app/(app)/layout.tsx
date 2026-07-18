@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
 import { NavLinks } from "@/components/nav-links";
 import { MobileNav } from "@/components/mobile-nav";
+import { CommandPalette } from "@/components/command-palette";
 
 export default async function AppLayout({
   children,
@@ -29,6 +30,7 @@ export default async function AppLayout({
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
           <NavLinks role={user.role} />
         </nav>
+        <div className="px-6 pb-1 text-[10px] text-cream/40">Search anywhere: ⌘K</div>
         <div className="border-t border-white/10 px-6 py-4">
           <div className="truncate text-sm font-medium text-cream">{user.name}</div>
           <div className="truncate text-xs text-cream/50">{user.email}</div>
@@ -42,6 +44,8 @@ export default async function AppLayout({
 
       {/* mobile top bar + drawer */}
       <MobileNav role={user.role} name={user.name} email={user.email} logout={logout} />
+
+      {user.role !== "BOOKKEEPER" && <CommandPalette />}
 
       <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:ml-60 lg:px-8 lg:py-8">{children}</main>
     </div>

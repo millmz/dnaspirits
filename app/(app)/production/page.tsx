@@ -1,6 +1,7 @@
 import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { money, num, dateStr } from "@/lib/format";
+import Link from "next/link";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
 import { createRun, startRun, completeRun, deleteRun, uncompleteRun } from "./actions";
 
@@ -30,6 +31,10 @@ export default async function ProductionPage({
         subtitle="Each batch at the contract distillery, tracked by lot. Completing a run adds bottles to finished goods and consumes dry goods per the BOM."
       />
 
+      <Link href="/production/plan" className="brand-heading mb-4 inline-block text-sm text-agave hover:underline">
+        Run planner: check dry-goods coverage before committing →
+      </Link>
+
       {err && <Callout tone="red">{err}</Callout>}
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -43,7 +48,9 @@ export default async function ProductionPage({
                   <div key={r.id} className="rounded-md border border-ink/10 bg-white/60 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <span className="brand-heading text-sm font-medium">{r.lotCode}</span>
+                        <Link href={`/production/lot/${encodeURIComponent(r.lotCode)}`} className="brand-heading text-sm font-medium text-agave-deep hover:underline">
+                          {r.lotCode}
+                        </Link>
                         <span className="ml-3 text-sm text-slate">{r.product.name}</span>
                       </div>
                       {r.status === "COMPLETED" ? (
