@@ -6,6 +6,7 @@ import { getOpenReceivables } from "@/lib/receivables";
 import { qboConfigured, qboConnection } from "@/lib/qbo";
 import { getCurrentUser } from "@/lib/auth";
 import { createExpense, deleteExpense, importFinancials, syncQbo } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const CB_LABELS: Record<string, string> = {
   DISTRIBUTOR_PROMO: "Distributor promo / billback",
@@ -271,7 +272,7 @@ export default async function AccountingPage({
                     <Td>
                       <form action={deleteExpense}>
                         <input type="hidden" name="id" value={e.id} />
-                        <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
+                        <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete</button>
                       </form>
                     </Td>
                   </tr>
@@ -287,7 +288,7 @@ export default async function AccountingPage({
               <Field label="P&L export (.xlsx or .csv)">
                 <input name="file" type="file" accept=".xlsx,.xls,.csv,text/csv" required className={inputCls} />
               </Field>
-              <button className={btnCls}>Upload</button>
+              <SubmitButton>Upload</SubmitButton>
               <div className="text-xs leading-relaxed text-slate/80">
                 <p>
                   Upload QuickBooks&apos; <span className="font-medium">&ldquo;Profit and Loss by Month&rdquo;</span> export
@@ -331,7 +332,7 @@ export default async function AccountingPage({
                     {qbo.lastSyncAt && ` Last synced ${dateStr(qbo.lastSyncAt)}.`}
                   </p>
                   <form action={syncQbo}>
-                    <button className={btnCls}>Sync P&L now</button>
+                    <SubmitButton>Sync P&L now</SubmitButton>
                   </form>
                   <p className="mt-2 text-xs text-slate/70">
                     Pulls this year and last year by month, replacing those periods — same as an upload.
@@ -359,7 +360,7 @@ export default async function AccountingPage({
             </div>
           </Card>
 
-          <Card title="Log expense">
+          <Card title="Log expense" collapsible>
             <form action={createExpense} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Date">
@@ -380,7 +381,7 @@ export default async function AccountingPage({
               <Field label="Notes">
                 <input name="notes" className={inputCls} />
               </Field>
-              <button className={btnCls}>Log expense</button>
+              <SubmitButton>Log expense</SubmitButton>
             </form>
           </Card>
 

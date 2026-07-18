@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { num, currentPeriod } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Badge, TierBadge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { createDepletion, deleteDepletion, importDepletions, importCommercialReport } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const pct = (v: number | null) =>
   v === null ? "—" : `${v >= 0 ? "+" : ""}${Math.round(v * 100)}%`;
@@ -172,7 +173,7 @@ export default async function DepletionsPage({
                     <Td>
                       <form action={deleteDepletion}>
                         <input type="hidden" name="id" value={d.id} />
-                        <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
+                        <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete</button>
                       </form>
                     </Td>
                   </tr>
@@ -193,7 +194,7 @@ export default async function DepletionsPage({
               <Field label="Monthly commercial report">
                 <input name="file" type="file" accept=".xlsx,.xls" required className={inputCls} />
               </Field>
-              <button className={btnCls}>Import report</button>
+              <SubmitButton>Import report</SubmitButton>
               <div className="text-xs leading-relaxed text-slate/80">
                 One click imports everything: monthly depletions by market, per-SKU
                 velocity, YTD accounts &amp; velocity by market, and top retail chains.
@@ -208,7 +209,7 @@ export default async function DepletionsPage({
               <Field label="Depletion CSV">
                 <input name="file" type="file" accept=".csv,text/csv" required className={inputCls} />
               </Field>
-              <button className={btnCls}>Import CSV</button>
+              <SubmitButton>Import CSV</SubmitButton>
               <div className="text-xs leading-relaxed text-slate/80">
                 Columns: <span className="font-mono">distributor, sku, period, cases</span>
                 {" "}(+ optional <span className="font-mono">account, account_type</span>).
@@ -218,7 +219,7 @@ export default async function DepletionsPage({
           </Card>
 
           {distributors.length > 0 && products.length > 0 && (
-            <Card title="Add manually">
+            <Card title="Add manually" collapsible>
               <form action={createDepletion} className="space-y-3">
                 <Field label="Distributor / market">
                   <select name="distributorId" className={inputCls}>
@@ -241,7 +242,7 @@ export default async function DepletionsPage({
                 <Field label="Account (optional)">
                   <input name="accountName" placeholder="Total Wine — Austin" className={inputCls} />
                 </Field>
-                <button className={btnCls}>Add record</button>
+                <SubmitButton>Add record</SubmitButton>
               </form>
             </Card>
           )}

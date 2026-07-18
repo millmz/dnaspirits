@@ -5,6 +5,7 @@ import { money, num } from "@/lib/format";
 import Link from "next/link";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
 import { createComponent, updateComponent, editComponentDetails, toggleComponentActive, adjustComponent, createSupplier, updateSupplier } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const CATEGORIES = [
   ["GLASS", "Glass"],
@@ -174,19 +175,19 @@ export default async function ComponentsPage({
                 <input name="notes" defaultValue={editing.notes} className={inputCls} />
               </Field>
               <div className="flex items-center gap-3">
-                <button className={btnCls}>Save changes</button>
+                <SubmitButton>Save changes</SubmitButton>
                 <Link href="/components" className={btnSecondaryCls}>Cancel</Link>
               </div>
             </form>
             <form action={toggleComponentActive} className="mt-4 border-t border-ink/10 pt-3">
               <input type="hidden" name="id" value={editing.id} />
-              <button className="text-xs text-slate/60 hover:text-burnt">
+              <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">
                 {editing.active ? "Retire this component (hides it from forms; history kept)" : "Reactivate this component"}
               </button>
             </form>
           </Card>
         ) : (
-        <Card title="Add component">
+        <Card title="Add component" collapsible>
           <form action={createComponent} className="space-y-3">
             <Field label="Name">
               <input name="name" required placeholder="Shipper Box — Añejo 700ml" className={inputCls} />
@@ -221,7 +222,7 @@ export default async function ComponentsPage({
                 <input name="reorderPoint" placeholder="5000" className={inputCls} />
               </Field>
             </div>
-            <button className={btnCls}>Add component</button>
+            <SubmitButton>Add component</SubmitButton>
           </form>
         </Card>
         )}
@@ -244,7 +245,7 @@ export default async function ComponentsPage({
             <Field label="Notes">
               <input name="notes" placeholder="Physical count correction / damaged" className={inputCls} />
             </Field>
-            <button className={btnCls}>Record</button>
+            <SubmitButton>Record</SubmitButton>
             <p className="text-xs text-slate/70">
               Stock also moves automatically: purchase orders add on receipt, production runs consume via BOM.
             </p>
@@ -273,13 +274,13 @@ export default async function ComponentsPage({
                 </Field>
               </div>
               <div className="flex items-center gap-3">
-                <button className={btnCls}>Save supplier</button>
+                <SubmitButton>Save supplier</SubmitButton>
                 <Link href="/components" className={btnSecondaryCls}>Cancel</Link>
               </div>
             </form>
           </Card>
         ) : (
-        <Card title="Add supplier">
+        <Card title="Add supplier" collapsible>
           <form action={createSupplier} className="space-y-3">
             <Field label="Name">
               <input name="name" required placeholder="Vidrio de Guadalajara" className={inputCls} />
@@ -298,7 +299,7 @@ export default async function ComponentsPage({
                 <input name="phone" className={inputCls} />
               </Field>
             </div>
-            <button className={btnCls}>Add supplier</button>
+            <SubmitButton>Add supplier</SubmitButton>
           </form>
           <p className="mt-3 text-xs text-slate/70">
             Edit an existing supplier:{" "}

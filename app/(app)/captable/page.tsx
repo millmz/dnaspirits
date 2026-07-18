@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { money, num, dateStr } from "@/lib/format";
 import { PageHeader, Card, Stat, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { createCapTableEntry, deleteCapTableEntry } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const UNIT_TONES: Record<string, "blanco" | "green" | "amber"> = {
   VOTING: "green",
@@ -113,7 +114,7 @@ export default async function CapTablePage() {
                     <Td>
                       <form action={deleteCapTableEntry}>
                         <input type="hidden" name="id" value={e.id} />
-                        <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
+                        <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete</button>
                       </form>
                     </Td>
                   </tr>
@@ -123,7 +124,7 @@ export default async function CapTablePage() {
           </Card>
         </div>
 
-        <Card title="Record issuance / transfer">
+        <Card title="Record issuance / transfer" collapsible>
           <form action={createCapTableEntry} className="space-y-3">
             <Field label="Member">
               <input name="member" required placeholder="Investor or member name" className={inputCls} />
@@ -154,7 +155,7 @@ export default async function CapTablePage() {
             <Field label="Notes">
               <input name="notes" placeholder="Valuation, source of units…" className={inputCls} />
             </Field>
-            <button className={btnCls}>Add entry</button>
+            <SubmitButton>Add entry</SubmitButton>
             <p className="text-xs leading-relaxed text-slate/70">
               Keep this in lockstep with counsel&apos;s records — unit transfers are governed by
               Articles XIII–XV of the operating agreement.

@@ -6,6 +6,7 @@ import { offsiteConfigured, lastOffsiteStatus, diskUsage } from "@/lib/offsite";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { emailEnabled, emailRecipients } from "@/lib/email";
 import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow, sendTestAlertEmail } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export default async function SettingsPage({
   searchParams,
@@ -64,7 +65,7 @@ export default async function SettingsPage({
                         </form>
                         <form action={deleteUser}>
                           <input type="hidden" name="id" value={u.id} />
-                          <button className="text-left text-xs text-stone-400 hover:text-red-600">Remove</button>
+                          <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Remove</button>
                         </form>
                       </div>
                     </div>
@@ -80,7 +81,7 @@ export default async function SettingsPage({
           </p>
         </Card>
 
-        <Card title="Invite team member">
+        <Card title="Invite team member" collapsible>
           <form action={createUser} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Name">
@@ -102,7 +103,7 @@ export default async function SettingsPage({
                 </select>
               </Field>
             </div>
-            <button className={btnCls}>Add user</button>
+            <SubmitButton>Add user</SubmitButton>
             <p className="text-xs text-stone-400">
               Share the temporary password with them directly — they'll be required to choose their own the first time they sign in.
             </p>
@@ -125,7 +126,7 @@ export default async function SettingsPage({
             <Field label="Location" className="flex-1">
               <input name="location" placeholder="Dallas, TX" className={inputCls} />
             </Field>
-            <button className={btnCls}>Add</button>
+            <SubmitButton>Add</SubmitButton>
           </form>
         </Card>
 
@@ -143,7 +144,7 @@ export default async function SettingsPage({
                 <span className="font-mono text-xs">{emailRecipients().join(", ")}</span>.
               </p>
               <form action={sendTestAlertEmail} className="mt-3">
-                <button className={btnCls}>Send test digest now</button>
+                <SubmitButton>Send test digest now</SubmitButton>
               </form>
             </>
           ) : (
@@ -211,7 +212,7 @@ export default async function SettingsPage({
             </Table>
           )}
           <form action={backupNow} className="mt-3">
-            <button className={btnCls}>Back up now</button>
+            <SubmitButton>Back up now</SubmitButton>
           </form>
           <div className="mt-3 rounded-md border border-ink/10 bg-white/60 px-3 py-2 text-xs leading-relaxed">
             {offsiteOn ? (

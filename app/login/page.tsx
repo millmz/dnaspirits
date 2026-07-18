@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { btnCls, inputCls, Field } from "@/components/ui";
 import { login } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export default async function LoginPage({
   searchParams,
@@ -45,9 +46,7 @@ export default async function LoginPage({
           <Field label="Password">
             <input name="password" type="password" required className={inputCls} />
           </Field>
-          <button type="submit" className={`${btnCls} w-full`}>
-            Sign in
-          </button>
+          <SubmitButton className="w-full">Sign in</SubmitButton>
         </form>
         <div className="brand-zigzag mx-auto mt-8 w-40" />
       </div>

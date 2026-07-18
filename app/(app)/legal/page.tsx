@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { dateStr } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { createLegalRecord, setLegalStatus, deleteLegalRecord } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const TYPES = [
   ["DOCUMENT", "Documents & Governance"],
@@ -124,7 +125,7 @@ export default async function LegalPage() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card title="Add record">
+        <Card title="Add record" collapsible>
           <form action={createLegalRecord} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Type">
@@ -156,7 +157,7 @@ export default async function LegalPage() {
             <Field label="Notes">
               <input name="notes" placeholder="Renewal window, counsel contact…" className={inputCls} />
             </Field>
-            <button className={btnCls}>Add record</button>
+            <SubmitButton>Add record</SubmitButton>
           </form>
         </Card>
 

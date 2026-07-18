@@ -6,6 +6,7 @@ import { BarChart } from "@/components/charts";
 import { num } from "@/lib/format";
 import { metaConfigured } from "@/lib/meta";
 import { refreshMetrics } from "../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 /**
  * Post analytics: KPIs from the latest Meta insights snapshot of every
@@ -157,7 +158,7 @@ export default async function ContentAnalyticsPage({
         <Link href="/content" className="brand-heading text-sm text-agave hover:underline">← Back to calendar</Link>
         {metaConfigured() && (
           <form action={refreshMetrics}>
-            <button className={btnCls}>Refresh analytics now</button>
+            <SubmitButton>Refresh analytics now</SubmitButton>
           </form>
         )}
         {lastFetched && (

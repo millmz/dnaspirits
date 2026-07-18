@@ -4,6 +4,7 @@ import { money } from "@/lib/format";
 import { caseCostFromBom } from "@/lib/bom-cost";
 import { PageHeader, Card, Table, Td, Badge, TierBadge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { createProduct, updateProduct, addBomItem, removeBomItem } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export default async function ProductsPage() {
   await requireOps();
@@ -88,7 +89,7 @@ export default async function ProductsPage() {
                         <Td>
                           <form action={removeBomItem}>
                             <input type="hidden" name="id" value={b.id} />
-                            <button className="text-xs text-slate/60 hover:text-burnt">Remove</button>
+                            <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Remove</button>
                           </form>
                         </Td>
                       </tr>
@@ -123,13 +124,13 @@ export default async function ProductsPage() {
                     <option value="CASE">per case</option>
                   </select>
                 </Field>
-                <button className={btnCls}>Add</button>
+                <SubmitButton>Add</SubmitButton>
               </form>
             </Card>
           );
         })}
 
-        <Card title="Add product">
+        <Card title="Add product" collapsible>
           <form action={createProduct} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label="SKU">
@@ -172,7 +173,7 @@ export default async function ProductsPage() {
                 <input name="exWorks" placeholder="114.36" className={inputCls} />
               </Field>
             </div>
-            <button className={btnCls}>Add product</button>
+            <SubmitButton>Add product</SubmitButton>
           </form>
         </Card>
 
@@ -213,7 +214,7 @@ export default async function ProductsPage() {
                   <label className="flex items-center gap-2 pb-2 text-sm text-slate">
                     <input type="checkbox" name="active" defaultChecked={p.active} /> Active
                   </label>
-                  <button className={btnCls}>Save</button>
+                  <SubmitButton>Save</SubmitButton>
                 </form>
               );
             })}

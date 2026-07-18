@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { money, num, dateStr } from "@/lib/format";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
 import { createPO, receivePO, unreceivePO, cancelPO } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export default async function PurchasingPage({
   searchParams,
@@ -87,11 +88,11 @@ export default async function PurchasingPage({
                             <Field label="Received date" className="w-40">
                               <input name="receivedDate" type="date" defaultValue={today} className={inputCls} />
                             </Field>
-                            <button className={btnCls}>Receive into stock</button>
+                            <SubmitButton>Receive into stock</SubmitButton>
                           </form>
                           <form action={cancelPO}>
                             <input type="hidden" name="id" value={po.id} />
-                            <button className={btnSecondaryCls}>Cancel</button>
+                            <SubmitButton variant="secondary">Cancel</SubmitButton>
                           </form>
                         </div>
                       )}
@@ -103,7 +104,7 @@ export default async function PurchasingPage({
           </Card>
         </div>
 
-        <Card title="New purchase order">
+        <Card title="New purchase order" collapsible>
           {suppliers.length === 0 ? (
             <EmptyState>Add a supplier on the Dry Goods page first.</EmptyState>
           ) : (
@@ -142,7 +143,7 @@ export default async function PurchasingPage({
               <Field label="Notes">
                 <input name="notes" className={inputCls} />
               </Field>
-              <button className={btnCls}>Create PO</button>
+              <SubmitButton>Create PO</SubmitButton>
             </form>
           )}
         </Card>

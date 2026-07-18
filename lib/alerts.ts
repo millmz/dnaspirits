@@ -69,6 +69,21 @@ export async function computeAlerts(): Promise<Alert[]> {
     });
   }
 
+  try {
+    const { getMarketPosition } = await import("./market");
+    const position = await getMarketPosition();
+    for (const p of position.filter((x) => x.weeksOfSupply !== null && x.weeksOfSupply < 8).slice(0, 4)) {
+      alerts.push({
+        severity: "amber",
+        area: "Market",
+        message: `${p.name}: ~${Math.round(p.weeksOfSupply!)} weeks of channel supply left — plan a production run`,
+        href: "/production/plan",
+      });
+    }
+  } catch {
+    // market data optional
+  }
+
   const disk = diskUsage();
   if (disk && disk.usedPct >= 85) {
     alerts.push({ severity: "red", area: "System", message: `Data disk ${disk.usedPct}% full`, href: "/settings" });

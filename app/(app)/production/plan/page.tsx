@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { num, money } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, Callout, EmptyState } from "@/components/ui";
 import { computeShortfalls, createShortfallPO } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 /**
  * Run planner (MRP-lite): pick a product and a case target, see exactly
@@ -52,7 +53,7 @@ export default async function PlanPage({
             <Field label="Cases to produce">
               <input name="cases" type="number" min={1} defaultValue={cases || ""} required className={inputCls} />
             </Field>
-            <button className={btnCls}>Check coverage</button>
+            <SubmitButton>Check coverage</SubmitButton>
           </form>
           {selected && cases > 0 && (
             <p className="mt-3 text-xs text-slate/70">

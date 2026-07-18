@@ -4,6 +4,7 @@ import { getMarketPosition } from "@/lib/market";
 import { num, currentPeriod } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Badge, TierBadge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { createChannelStock, deleteChannelStock, importChannelStock, importLsiInventory } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export default async function ChannelPage({
   searchParams,
@@ -116,7 +117,7 @@ export default async function ChannelPage({
                     <Td>
                       <form action={deleteChannelStock}>
                         <input type="hidden" name="id" value={s.id} />
-                        <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
+                        <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete</button>
                       </form>
                     </Td>
                   </tr>
@@ -140,7 +141,7 @@ export default async function ChannelPage({
               <Field label="Report month (auto-detected from filename when possible)">
                 <input name="period" placeholder="YYYY-MM" className={inputCls} />
               </Field>
-              <button className={btnCls}>Import inventory</button>
+              <SubmitButton>Import inventory</SubmitButton>
               <div className="text-xs leading-relaxed text-slate/80">
                 Reads the &ldquo;LSI Inventory&rdquo; and &ldquo;Distributor Inventory&rdquo; sheets as channel
                 stock (physical cases → 9L). Distributors auto-create with their real names.
@@ -154,7 +155,7 @@ export default async function ChannelPage({
               <Field label="Report file (.csv)">
                 <input name="file" type="file" accept=".csv,text/csv" required className={inputCls} />
               </Field>
-              <button className={btnCls}>Import</button>
+              <SubmitButton>Import</SubmitButton>
               <div className="text-xs leading-relaxed text-slate/80">
                 <p className="brand-heading font-medium text-slate">Expected columns:</p>
                 <p className="mt-1 font-mono">holder, sku, period, cases</p>
@@ -165,7 +166,7 @@ export default async function ChannelPage({
             </form>
           </Card>
 
-          <Card title="Add record manually">
+          <Card title="Add record manually" collapsible>
             <form action={createChannelStock} className="space-y-3">
               <Field label="Holder">
                 <select name="holder" className={inputCls}>
@@ -190,7 +191,7 @@ export default async function ChannelPage({
                   <input name="cases" required placeholder="120" className={inputCls} />
                 </Field>
               </div>
-              <button className={btnCls}>Add record</button>
+              <SubmitButton>Add record</SubmitButton>
             </form>
           </Card>
         </div>

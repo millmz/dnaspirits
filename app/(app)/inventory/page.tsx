@@ -4,6 +4,7 @@ import { getStock } from "@/lib/inventory";
 import { num, dateStr } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Badge, TierBadge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { adjustInventory, transferInventory } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const MOVEMENT_TONES: Record<string, "green" | "amber" | "blue" | "gray"> = {
   PRODUCTION: "green",
@@ -107,7 +108,7 @@ export default async function InventoryPage({
               <Field label="Notes">
                 <input name="notes" placeholder="Container / shipment reference" className={inputCls} />
               </Field>
-              <button className={btnCls}>Transfer</button>
+              <SubmitButton>Transfer</SubmitButton>
               <p className="text-xs leading-relaxed text-slate/70">
                 Use for Mexico → U.S. shipments (or any warehouse move). The transfer refuses if the source
                 doesn&apos;t hold enough stock. Tip: a full pallet is 140 cases × 6 = 840 bottles.
@@ -115,7 +116,7 @@ export default async function InventoryPage({
             </form>
           </Card>
 
-          <Card title="Record adjustment / samples">
+          <Card title="Record adjustment / samples" collapsible>
             <form action={adjustInventory} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Product">
@@ -146,7 +147,7 @@ export default async function InventoryPage({
               <Field label="Notes">
                 <input name="notes" placeholder="Breakage / importer samples" className={inputCls} />
               </Field>
-              <button className={btnCls}>Record</button>
+              <SubmitButton>Record</SubmitButton>
             </form>
           </Card>
         </div>

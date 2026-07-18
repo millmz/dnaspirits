@@ -4,6 +4,7 @@ import { money, num, dateStr } from "@/lib/format";
 import Link from "next/link";
 import { PageHeader, Card, Badge, Field, Table, Td, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
 import { createSale, confirmSale, unconfirmSale, markPaid, markUnpaid, recordPayment, deleteDraft, createChargeback, deleteChargeback } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const CB_CATEGORIES = [
   ["DISTRIBUTOR_PROMO", "Distributor promo / billback"],
@@ -110,11 +111,11 @@ export default async function SalesPage({
                           <>
                             <form action={confirmSale}>
                               <input type="hidden" name="id" value={s.id} />
-                              <button className={btnCls}>Confirm sale</button>
+                              <SubmitButton>Confirm sale</SubmitButton>
                             </form>
                             <form action={deleteDraft}>
                               <input type="hidden" name="id" value={s.id} />
-                              <button className={btnSecondaryCls}>Delete draft</button>
+                              <SubmitButton variant="secondary">Delete draft</SubmitButton>
                             </form>
                           </>
                         )}
@@ -124,7 +125,7 @@ export default async function SalesPage({
                               <input type="hidden" name="id" value={s.id} />
                               <input name="amount" placeholder="$ received" className={`${inputCls} w-28`} />
                               <input name="date" type="date" defaultValue={today} className={`${inputCls} w-36`} />
-                              <button className={btnSecondaryCls}>Record payment</button>
+                              <SubmitButton variant="secondary">Record payment</SubmitButton>
                             </form>
                             <form action={markPaid} className="flex items-center gap-2">
                               <input type="hidden" name="id" value={s.id} />
@@ -134,7 +135,7 @@ export default async function SalesPage({
                             {s.amountPaidCents === 0 && (
                               <form action={unconfirmSale}>
                                 <input type="hidden" name="id" value={s.id} />
-                                <button className="px-1 py-1.5 text-xs text-slate/60 hover:text-burnt">Undo confirm</button>
+                                <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Undo confirm</button>
                               </form>
                             )}
                           </>
@@ -142,7 +143,7 @@ export default async function SalesPage({
                         {s.status === "CONFIRMED" && s.invoiceStatus === "PAID" && (
                           <form action={markUnpaid}>
                             <input type="hidden" name="id" value={s.id} />
-                            <button className="px-1 py-1.5 text-xs text-slate/60 hover:text-burnt">Mark unpaid (undo)</button>
+                            <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Mark unpaid (undo)</button>
                           </form>
                         )}
                       </div>
@@ -154,7 +155,7 @@ export default async function SalesPage({
           </Card>
         </div>
 
-        <Card title="New ex-works sale">
+        <Card title="New ex-works sale" collapsible>
           <form action={createSale} className="space-y-3">
             <Field label="Importer">
               <select name="importerId" required className={inputCls}>
@@ -197,7 +198,7 @@ export default async function SalesPage({
             <Field label="Notes">
               <input name="notes" className={inputCls} />
             </Field>
-            <button className={btnCls}>Create draft</button>
+            <SubmitButton>Create draft</SubmitButton>
             <p className="text-xs text-slate/70">
               Sales start as drafts; confirming checks finished-goods stock and posts the draw-down.
             </p>
@@ -234,7 +235,7 @@ export default async function SalesPage({
                     <Td>
                       <form action={deleteChargeback}>
                         <input type="hidden" name="id" value={c.id} />
-                        <button className="text-xs text-slate/60 hover:text-burnt">Delete</button>
+                        <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete</button>
                       </form>
                     </Td>
                   </tr>
@@ -248,7 +249,7 @@ export default async function SalesPage({
           </Card>
         </div>
 
-        <Card title="Record chargeback">
+        <Card title="Record chargeback" collapsible>
           <form action={createChargeback} className="space-y-3">
             <Field label="Importer">
               <select name="importerId" className={inputCls}>
@@ -289,7 +290,7 @@ export default async function SalesPage({
             <Field label="Notes">
               <input name="notes" placeholder="e.g. Q2 NY distributor depletion allowance" className={inputCls} />
             </Field>
-            <button className={btnCls}>Record chargeback</button>
+            <SubmitButton>Record chargeback</SubmitButton>
           </form>
         </Card>
       </div>

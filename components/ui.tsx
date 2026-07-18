@@ -29,11 +29,24 @@ export function Card({
   title,
   children,
   className = "",
+  collapsible = false,
 }: {
   title?: string;
   children: ReactNode;
   className?: string;
+  collapsible?: boolean; // creation forms collapse so browsing stays calm
 }) {
+  if (collapsible && title) {
+    return (
+      <details className={`group rounded-lg border border-ink/10 bg-white/70 shadow-sm ${className}`}>
+        <summary className="brand-heading flex cursor-pointer select-none items-center justify-between px-5 py-3 text-sm text-agave-deep [&::-webkit-details-marker]:hidden">
+          <span>+ {title}</span>
+          <span className="text-xs text-slate/40 transition-transform group-open:rotate-90">▸</span>
+        </summary>
+        <div className="border-t border-ink/10 p-5">{children}</div>
+      </details>
+    );
+  }
   return (
     <div className={`rounded-lg border border-ink/10 bg-white/70 shadow-sm ${className}`}>
       {title && (

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { num } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { updateImporter, createImporter, createDistributor } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export default async function PartnersPage() {
   await requireOps();
@@ -56,7 +57,7 @@ export default async function PartnersPage() {
                     <Field label="Market" className="w-24">
                       <input name="market" placeholder="TX" className={inputCls} />
                     </Field>
-                    <button className={btnCls}>Add</button>
+                    <SubmitButton>Add</SubmitButton>
                   </form>
                 </div>
 
@@ -84,14 +85,14 @@ export default async function PartnersPage() {
                   <Field label="Notes (fees, terms, etc.)">
                     <textarea name="notes" rows={3} defaultValue={imp.notes} className={inputCls} />
                   </Field>
-                  <button className={btnCls}>Save importer</button>
+                  <SubmitButton>Save importer</SubmitButton>
                 </form>
               </div>
             </Card>
           );
         })}
 
-        <Card title="Add importer">
+        <Card title="Add importer" collapsible>
           <form action={createImporter} className="flex flex-wrap items-end gap-3">
             <Field label="Name" className="min-w-56 flex-1">
               <input name="name" required placeholder="New importer (e.g. for a second country)" className={inputCls} />
@@ -105,7 +106,7 @@ export default async function PartnersPage() {
             <Field label="Email" className="w-52">
               <input name="email" type="email" className={inputCls} />
             </Field>
-            <button className={btnCls}>Add importer</button>
+            <SubmitButton>Add importer</SubmitButton>
           </form>
         </Card>
       </div>

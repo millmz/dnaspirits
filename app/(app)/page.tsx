@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireOps } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getStock, getComponentStock } from "@/lib/inventory";
+import { getStock } from "@/lib/inventory";
 import { getMarketPosition } from "@/lib/market";
 import { getOpenReceivables } from "@/lib/receivables";
 import { money, num, dateStr, currentPeriod } from "@/lib/format";
@@ -19,13 +19,10 @@ export default async function Dashboard() {
   const period = currentPeriod();
   const yearStart = `${period.slice(0, 4)}-01`;
 
-  const in90d = new Date(Date.now() + 90 * 86_400_000);
-  const [stock, position, components, componentStock, ytdDep, unpaid, recentSales, recentRuns, legalDue] =
+  const [stock, position, ytdDep, unpaid, recentSales, recentRuns] =
     await Promise.all([
       getStock(),
       getMarketPosition(),
-      db.component.findMany({ where: { active: true } }),
-      getComponentStock(),
       db.depletion.aggregate({ where: { period: { gte: yearStart } }, _sum: { cases: true } }),
       getOpenReceivables(),
       db.exWorksSale.findMany({
@@ -38,10 +35,6 @@ export default async function Dashboard() {
         take: 4,
         include: { product: true },
       }),
-      db.legalRecord.findMany({
-        where: { status: "ACTIVE", dueDate: { not: null, lte: in90d } },
-        orderBy: { dueDate: "asc" },
-      }),
     ]);
 
   const alerts = await computeAlerts();
@@ -49,10 +42,6 @@ export default async function Dashboard() {
   const channelCases = position.reduce((a, p) => a + p.channelCases, 0);
   const receivables = unpaid.totalNetCents;
 
-  const lowComponents = components.filter(
-    (c) => c.reorderPoint > 0 && (componentStock.get(c.id) ?? 0) < c.reorderPoint
-  );
-  const restock = position.filter((p) => p.weeksOfSupply !== null && p.weeksOfSupply < 8);
 
   return (
     <div>
@@ -61,6 +50,19 @@ export default async function Dashboard() {
         title="Dashboard"
         subtitle="From agave to account — the whole operation at a glance."
       />
+
+
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Stat label="Finished goods · MX" value={`${num(fgCases)} cases`} hint="Your stock at the distillery" />
+        <Stat label="Cases in channel · US" value={`${num(Math.round(channelCases))}`} hint="Importer + distributors, latest reports" tone="agave" />
+        <Stat label="Depletions · YTD" value={`${num(Math.round(ytdDep._sum.cases ?? 0))} cases`} hint="Sold through to retail" />
+        <Stat
+          label="Open receivables"
+          value={money(receivables)}
+          tone={receivables > 0 ? "reposado" : "ink"}
+          hint={`${unpaid.items.length} unpaid invoice${unpaid.items.length === 1 ? "" : "s"}, net of chargeback credits`}
+        />
+      </div>
 
       {alerts.length > 0 && (
         <div className="mb-5 rounded-lg border border-burnt/25 bg-white/70 p-4">
@@ -88,60 +90,6 @@ export default async function Dashboard() {
       )}
 
       {agentEnabled() && <AskWidget />}
-
-      {legalDue.length > 0 && (
-        <div className="mb-6 rounded-md border border-reposado/40 bg-reposado/10 p-4">
-          <div className="brand-heading mb-1 text-sm text-burnt">Legal & compliance deadlines</div>
-          <ul className="space-y-1 text-sm text-ink/90">
-            {legalDue.map((r) => {
-              const past = r.dueDate! < new Date();
-              return (
-                <li key={r.id}>
-                  <span className="font-medium">{r.title}</span>
-                  {r.reference && <span className="text-slate"> ({r.reference})</span>}:{" "}
-                  <span className={past ? "font-medium text-burnt" : ""}>
-                    {past ? "EXPIRED" : "due"} {dateStr(r.dueDate)}
-                  </span>{" "}
-                  — <Link href="/legal" className="text-agave-deep underline">open Legal &amp; IP</Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      {(restock.length > 0 || lowComponents.length > 0) && (
-        <div className="mb-6 rounded-md border border-burnt/30 bg-burnt/8 p-4">
-          <div className="brand-heading mb-1 text-sm text-burnt">Action needed</div>
-          <ul className="space-y-1 text-sm text-ink/90">
-            {restock.map((p) => (
-              <li key={p.productId}>
-                <span className="font-medium">{p.name}</span>: ~{num(Math.round(p.weeksOfSupply!))} weeks of supply left in the channel
-                ({num(Math.round(p.channelCases))} cases at {num(Math.round(p.velocityCasesPerMonth * 10) / 10)}/mo) —{" "}
-                <Link href="/production" className="text-agave-deep underline">plan a production run</Link>
-              </li>
-            ))}
-            {lowComponents.map((c) => (
-              <li key={c.id}>
-                <span className="font-medium">{c.name}</span>: {num(Math.round(componentStock.get(c.id) ?? 0))} on hand, below reorder point of {num(c.reorderPoint)} ({c.leadTimeDays}-day lead) —{" "}
-                <Link href="/purchasing" className="text-agave-deep underline">raise a PO</Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Finished goods · MX" value={`${num(fgCases)} cases`} hint="Your stock at the distillery" />
-        <Stat label="Cases in channel · US" value={`${num(Math.round(channelCases))}`} hint="Importer + distributors, latest reports" tone="agave" />
-        <Stat label="Depletions · YTD" value={`${num(Math.round(ytdDep._sum.cases ?? 0))} cases`} hint="Sold through to retail" />
-        <Stat
-          label="Open receivables"
-          value={money(receivables)}
-          tone={receivables > 0 ? "reposado" : "ink"}
-          hint={`${unpaid.items.length} unpaid invoice${unpaid.items.length === 1 ? "" : "s"}, net of chargeback credits`}
-        />
-      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Market position">

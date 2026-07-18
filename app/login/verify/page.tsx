@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { readPreAuth } from "@/lib/auth";
 import { btnCls, inputCls, Field } from "@/components/ui";
 import { verifyLoginCode } from "../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 /** Second sign-in step for accounts with two-factor authentication. */
 export default async function VerifyPage({
@@ -47,9 +48,7 @@ export default async function VerifyPage({
               className={`${inputCls} text-center text-lg tracking-[0.4em]`}
             />
           </Field>
-          <button type="submit" className={`${btnCls} w-full`}>
-            Verify
-          </button>
+          <SubmitButton className="w-full">Verify</SubmitButton>
           <p className="text-center text-xs text-slate/70">
             Lost your phone? An admin can reset 2FA for your account from Settings.
           </p>

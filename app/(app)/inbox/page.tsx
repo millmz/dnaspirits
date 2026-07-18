@@ -4,6 +4,7 @@ import { agentEnabled } from "@/lib/agent";
 import { num, dateStr } from "@/lib/format";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
 import { uploadForReview, approveImport, rejectImport, deletePending } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const KIND_LABEL: Record<string, string> = {
   COMMERCIAL_REPORT: "Commercial report",
@@ -176,12 +177,12 @@ export default async function InboxPage({
                         {canImport && (
                           <form action={approveImport}>
                             <input type="hidden" name="id" value={p.id} />
-                            <button className={btnCls}>Approve &amp; import</button>
+                            <SubmitButton>Approve &amp; import</SubmitButton>
                           </form>
                         )}
                         <form action={rejectImport}>
                           <input type="hidden" name="id" value={p.id} />
-                          <button className={btnSecondaryCls}>Reject</button>
+                          <SubmitButton variant="secondary">Reject</SubmitButton>
                         </form>
                       </div>
                     </div>
@@ -204,7 +205,7 @@ export default async function InboxPage({
                       {p.status === "APPROVED" ? <Badge tone="green">Imported</Badge> : <Badge>Rejected</Badge>}
                       <form action={deletePending}>
                         <input type="hidden" name="id" value={p.id} />
-                        <button className="text-xs text-slate/60 hover:text-burnt">Clear</button>
+                        <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Clear</button>
                       </form>
                     </div>
                   </div>
@@ -231,7 +232,7 @@ export default async function InboxPage({
                   {importers.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                 </select>
               </Field>
-              <button className={btnCls}>Stage for review</button>
+              <SubmitButton>Stage for review</SubmitButton>
               <p className="text-xs leading-relaxed text-slate/70">
                 Known reports (commercial report, LSI workbook, QuickBooks P&amp;L) are parsed
                 deterministically. Anything else — supplier invoices, chargeback statements, permits,

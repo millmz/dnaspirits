@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { btnCls, inputCls, Field } from "@/components/ui";
 import { rotatePassword } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 /** Forced password rotation for temp/admin-set passwords. */
 export default async function PasswordPage({
@@ -42,9 +43,7 @@ export default async function PasswordPage({
           <Field label="Confirm new password">
             <input name="confirm" type="password" required minLength={12} className={inputCls} />
           </Field>
-          <button type="submit" className={`${btnCls} w-full`}>
-            Save &amp; continue
-          </button>
+          <SubmitButton className="w-full">Save &amp; continue</SubmitButton>
         </form>
         <div className="brand-zigzag mx-auto mt-8 w-40" />
       </div>

@@ -4,6 +4,7 @@ import { money, num, dateStr } from "@/lib/format";
 import Link from "next/link";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
 import { createRun, startRun, completeRun, deleteRun, uncompleteRun } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export default async function ProductionPage({
   searchParams,
@@ -79,11 +80,11 @@ export default async function ProductionPage({
                       <div className="mt-3 flex items-center gap-3">
                         <form action={startRun}>
                           <input type="hidden" name="id" value={r.id} />
-                          <button className={btnSecondaryCls}>Mark in progress</button>
+                          <SubmitButton variant="secondary">Mark in progress</SubmitButton>
                         </form>
                         <form action={deleteRun}>
                           <input type="hidden" name="id" value={r.id} />
-                          <button className="text-xs text-slate/60 hover:text-burnt">Delete run</button>
+                          <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete run</button>
                         </form>
                       </div>
                     )}
@@ -107,7 +108,7 @@ export default async function ProductionPage({
                         <Field label="Final cost ($, optional)" className="w-36">
                           <input name="totalCost" placeholder={(r.totalCostCents / 100).toFixed(2)} className={inputCls} />
                         </Field>
-                        <button className={btnCls}>Complete run</button>
+                        <SubmitButton>Complete run</SubmitButton>
                       </form>
                     )}
                   </div>
@@ -117,7 +118,7 @@ export default async function ProductionPage({
           </Card>
         </div>
 
-        <Card title="Plan a run">
+        <Card title="Plan a run" collapsible>
           <form action={createRun} className="space-y-3">
             <Field label="Lot code">
               <input name="lotCode" required placeholder="LOT-2026-014" className={inputCls} />
@@ -152,7 +153,7 @@ export default async function ProductionPage({
             <Field label="Notes">
               <textarea name="notes" rows={2} className={inputCls} />
             </Field>
-            <button className={btnCls}>Plan run</button>
+            <SubmitButton>Plan run</SubmitButton>
           </form>
         </Card>
       </div>

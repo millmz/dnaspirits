@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { num } from "@/lib/format";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { createPartner, updatePartnerStatus, deletePartner } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const STATUSES = [
   ["PROSPECT", "Prospect"],
@@ -87,7 +88,7 @@ export default async function InfluencersPage() {
                         <Field label="Notes" className="min-w-48 flex-1">
                           <input name="notes" defaultValue={p.notes} className={inputCls} />
                         </Field>
-                        <button className={btnCls}>Update</button>
+                        <SubmitButton>Update</SubmitButton>
                       </form>
                       <form action={deletePartner}>
                         <input type="hidden" name="id" value={p.id} />
@@ -101,7 +102,7 @@ export default async function InfluencersPage() {
           </Card>
         </div>
 
-        <Card title="Add partner">
+        <Card title="Add partner" collapsible>
           <form action={createPartner} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Type">
@@ -138,7 +139,7 @@ export default async function InfluencersPage() {
             <Field label="Notes">
               <textarea name="notes" rows={2} className={inputCls} />
             </Field>
-            <button className={btnCls}>Add partner</button>
+            <SubmitButton>Add partner</SubmitButton>
             <p className="text-xs text-slate/70">
               Playbook filter: modern hosts and cooks — not nightlife, not celebrity-flash.
             </p>

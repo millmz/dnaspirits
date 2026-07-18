@@ -7,6 +7,7 @@ import { isVideo } from "@/lib/media";
 import { editPost, advancePost, deletePost, publishNow, retryPublish, removePostMedia, movePostMedia, syncLiveFeed, createIdea, scheduleIdea, duplicatePost, createSeries, toggleSeries, deleteSeries } from "./actions";
 import { PostComposer, AddMedia } from "@/components/post-composer";
 import { agentEnabled } from "@/lib/agent";
+import { SubmitButton } from "@/components/submit-button";
 
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -47,11 +48,11 @@ const DOT_TONE: Record<string, string> = {
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; day?: string; edit?: string; err?: string; synced?: string }>;
+  searchParams: Promise<{ month?: string; day?: string; edit?: string; err?: string; synced?: string; panel?: string }>;
 }) {
   await requireOps();
   const me = await getCurrentUser();
-  const { month, day, edit, err, synced } = await searchParams;
+  const { month, day, edit, err, synced, panel: panelRaw } = await searchParams;
   const current = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : new Date().toISOString().slice(0, 7);
   const selectedDay = /^\d{1,2}$/.test(day ?? "") ? Number(day) : null;
 
@@ -106,6 +107,7 @@ export default async function ContentPage({
     : toLocalInput(new Date(Date.now() + 60 * 60 * 1000));
   const editingPost = edit ? await db.socialPost.findUnique({ where: { id: edit } }) : null;
 
+  const panel = editingPost ? "compose" : ["ideas", "series"].includes(panelRaw ?? "") ? panelRaw! : "compose";
   const ig = igConfigured();
   const fb = fbConfigured();
   const metaOn = ig || fb;
@@ -287,7 +289,7 @@ export default async function ContentPage({
                           </form>
                           <form action={deletePost}>
                             <input type="hidden" name="id" value={p.id} />
-                            <button className="px-1 py-1.5 text-xs text-slate/60 hover:text-burnt">Delete</button>
+                            <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete</button>
                           </form>
                         </div>
                       </div>
@@ -370,6 +372,20 @@ export default async function ContentPage({
         </div>
 
         <div id="plan" className="scroll-mt-20 space-y-6">
+          <div className="flex gap-1 rounded-lg border border-ink/10 bg-white/70 p-1 text-sm">
+            {([["compose", "Compose"], ["ideas", `Ideas (${ideas.length})`], ["series", "Series"]] as const).map(([k, label]) => (
+              <Link
+                key={k}
+                href={`/content?month=${current}${selectedDay ? `&day=${selectedDay}` : ""}${k === "compose" ? "" : `&panel=${k}`}#plan`}
+                className={`brand-heading flex-1 rounded-md px-3 py-1.5 text-center ${
+                  panel === k ? "bg-agave text-cream" : "text-slate hover:bg-ink/5"
+                }`}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+          {panel === "compose" && (<>
           <Card title={editingPost ? `Edit “${editingPost.title}”` : "Plan a post"}>
             {editingPost ? (
             <form action={editPost} className="space-y-3">
@@ -424,7 +440,7 @@ export default async function ContentPage({
                 </label>
               )}
               <div className="flex items-center gap-3">
-                <button className={btnCls}>Save changes</button>
+                <SubmitButton>Save changes</SubmitButton>
                 <Link href={`/content?month=${current}`} className="text-sm text-slate underline-offset-2 hover:underline">
                   Cancel
                 </Link>
@@ -441,12 +457,14 @@ export default async function ContentPage({
             )}
           </Card>
 
+          </>)}
+          {panel === "ideas" && (<>
           <Card title={`Idea backlog (${ideas.length})`}>
             <form action={createIdea} className="mb-3 flex items-end gap-2">
               <Field label="Quick idea" className="flex-1">
                 <input name="title" required placeholder="Behind the scenes at the distillery" className={inputCls} />
               </Field>
-              <button className={btnCls}>Save</button>
+              <SubmitButton>Save</SubmitButton>
             </form>
             {ideas.length === 0 ? (
               <p className="text-xs text-slate/70">
@@ -467,7 +485,7 @@ export default async function ContentPage({
                       </form>
                       <form action={deletePost}>
                         <input type="hidden" name="id" value={i.id} />
-                        <button className="text-xs text-slate/50 hover:text-burnt">Delete</button>
+                        <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete</button>
                       </form>
                     </div>
                   </div>
@@ -476,6 +494,8 @@ export default async function ContentPage({
             )}
           </Card>
 
+          </>)}
+          {panel === "series" && (<>
           <Card title="Recurring series">
             {series.length > 0 && (
               <div className="mb-3 space-y-2">
@@ -494,7 +514,7 @@ export default async function ContentPage({
                     </form>
                     <form action={deleteSeries}>
                       <input type="hidden" name="id" value={s.id} />
-                      <button className="text-xs text-slate/50 hover:text-burnt">Delete</button>
+                      <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Delete</button>
                     </form>
                   </div>
                 ))}
@@ -530,7 +550,7 @@ export default async function ContentPage({
               <Field label="Hashtags (optional)">
                 <input name="hashtags" placeholder="#DeNada #MargaritaMonday" className={inputCls} />
               </Field>
-              <button className={btnCls}>Add series</button>
+              <SubmitButton>Add series</SubmitButton>
               <p className="text-xs text-slate/70">
                 Placeholder ideas appear on the calendar two weeks ahead — fill each one with that
                 week&apos;s content and schedule it.
@@ -538,7 +558,8 @@ export default async function ContentPage({
             </form>
           </Card>
 
-          {me?.role === "ADMIN" && (
+          </>)}
+          {panel === "compose" && me?.role === "ADMIN" && (
             <Card title="Connect Instagram & Facebook">
               {metaOn ? (
                 <div className="space-y-2 text-sm text-ink/85">

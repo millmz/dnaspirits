@@ -3,6 +3,7 @@ import { unseal } from "@/lib/crypto";
 import { otpauthUrl } from "@/lib/totp";
 import { PageHeader, Card, Field, inputCls, btnCls, Badge, Callout } from "@/components/ui";
 import { start2fa, cancel2fa, confirm2fa, disable2fa, changeMyPassword, signOutEverywhere } from "./actions";
+import { SubmitButton } from "@/components/submit-button";
 
 /** Personal security settings — reachable by every signed-in user. */
 export default async function SecurityPage({
@@ -50,7 +51,7 @@ export default async function SecurityPage({
                     className={inputCls}
                   />
                 </Field>
-                <button className={btnCls}>Turn off</button>
+                <SubmitButton>Turn off</SubmitButton>
               </form>
             </>
           ) : enrolling ? (
@@ -81,10 +82,10 @@ export default async function SecurityPage({
                     className={inputCls}
                   />
                 </Field>
-                <button className={btnCls}>Confirm & turn on</button>
+                <SubmitButton>Confirm & turn on</SubmitButton>
               </form>
               <form action={cancel2fa}>
-                <button className="text-xs text-stone-400 hover:text-red-600">Cancel setup</button>
+                <button className="px-1 py-1.5 text-xs text-slate/50 transition-colors hover:text-burnt">Cancel setup</button>
               </form>
             </div>
           ) : (
@@ -95,7 +96,7 @@ export default async function SecurityPage({
                 alone. Strongly recommended for every account on this platform.
               </p>
               <form action={start2fa}>
-                <button className={btnCls}>Set up 2FA</button>
+                <SubmitButton>Set up 2FA</SubmitButton>
               </form>
             </>
           )}
@@ -115,7 +116,7 @@ export default async function SecurityPage({
             <Field label="New password (12+ characters)">
               <input name="next" type="password" required minLength={12} autoComplete="new-password" className={inputCls} />
             </Field>
-            <button className={btnCls}>Update password</button>
+            <SubmitButton>Update password</SubmitButton>
           </form>
           <p className="mt-2 text-xs text-slate/70">
             Changing your password signs out every other session on your account.
@@ -128,7 +129,7 @@ export default async function SecurityPage({
             immediately invalidates your account's sessions on every device except this one.
           </p>
           <form action={signOutEverywhere}>
-            <button className={btnCls}>Sign out everywhere else</button>
+            <SubmitButton>Sign out everywhere else</SubmitButton>
           </form>
         </Card>
       </div>
