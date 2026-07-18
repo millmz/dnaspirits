@@ -4,8 +4,11 @@ import { db } from "@/lib/db";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { igConfigured, fbConfigured, appBaseUrl } from "@/lib/meta";
 import { isVideo } from "@/lib/media";
-import { editPost, advancePost, deletePost, publishNow, retryPublish, removePostMedia, movePostMedia, syncLiveFeed } from "./actions";
+import { editPost, advancePost, deletePost, publishNow, retryPublish, removePostMedia, movePostMedia, syncLiveFeed, createIdea, scheduleIdea, duplicatePost, createSeries, toggleSeries, deleteSeries } from "./actions";
 import { PostComposer, AddMedia } from "@/components/post-composer";
+import { agentEnabled } from "@/lib/agent";
+
+const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const CHANNELS = [
   ["IG_FB", "Instagram + Facebook"],
@@ -62,11 +65,15 @@ export default async function ContentPage({
   const next = ym(new Date(year, mon, 1));
   const monthName = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
-  const posts = await db.socialPost.findMany({
-    where: { date: { gte: monthStart, lt: monthEnd } },
-    include: { items: { orderBy: { position: "asc" } } },
-    orderBy: { date: "asc" },
-  });
+  const [posts, ideas, series] = await Promise.all([
+    db.socialPost.findMany({
+      where: { date: { gte: monthStart, lt: monthEnd }, unscheduled: false },
+      include: { items: { orderBy: { position: "asc" } } },
+      orderBy: { date: "asc" },
+    }),
+    db.socialPost.findMany({ where: { unscheduled: true }, orderBy: { createdAt: "desc" }, take: 30 }),
+    db.postSeries.findMany({ orderBy: { createdAt: "asc" } }),
+  ]);
 
   // month grid
   const firstDow = monthStart.getDay();
@@ -230,6 +237,7 @@ export default async function ContentPage({
                         <div className="w-24 text-xs text-slate">{showWhen(p.date)}</div>
                         <Badge tone={STATUS_TONE[p.status]}>{p.status}</Badge>
                         <Badge>{chLabel(p.channel)}</Badge>
+                        {p.format === "STORY" && <Badge tone="anejo">Story</Badge>}
                         {p.items.length > 1 && <Badge tone="blue">Carousel · {p.items.length}</Badge>}
                         {p.autoPublish && p.status === "SCHEDULED" && !p.publishError && (
                           <Badge tone="amber">{p.igCreationId || p.igChildIds ? "Processing…" : "Auto-post armed"}</Badge>
@@ -273,6 +281,10 @@ export default async function ContentPage({
                               </button>
                             </form>
                           )}
+                          <form action={duplicatePost}>
+                            <input type="hidden" name="id" value={p.id} />
+                            <button className="px-1 py-1.5 text-xs text-slate/60 hover:text-agave" title="Copy caption & settings to a new idea">Duplicate</button>
+                          </form>
                           <form action={deletePost}>
                             <input type="hidden" name="id" value={p.id} />
                             <button className="px-1 py-1.5 text-xs text-slate/60 hover:text-burnt">Delete</button>
@@ -424,8 +436,106 @@ export default async function ContentPage({
                 defaultChannel={ig && fb ? "IG_FB" : "INSTAGRAM"}
                 defaultDatetime={defaultDatetime}
                 metaOn={metaOn}
+                aiOn={agentEnabled()}
               />
             )}
+          </Card>
+
+          <Card title={`Idea backlog (${ideas.length})`}>
+            <form action={createIdea} className="mb-3 flex items-end gap-2">
+              <Field label="Quick idea" className="flex-1">
+                <input name="title" required placeholder="Behind the scenes at the distillery" className={inputCls} />
+              </Field>
+              <button className={btnCls}>Save</button>
+            </form>
+            {ideas.length === 0 ? (
+              <p className="text-xs text-slate/70">
+                Toss in ideas whenever they hit — schedule them when you&apos;re ready. &ldquo;Duplicate&rdquo; on
+                any post also lands here.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {ideas.map((i) => (
+                  <div key={i.id} className="rounded-md border border-ink/8 bg-white/60 px-3 py-2">
+                    <div className="text-sm font-medium">{i.title}</div>
+                    {i.caption && <div className="mt-0.5 line-clamp-2 text-xs text-slate/70">{i.caption}</div>}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <form action={scheduleIdea} className="flex items-center gap-1.5">
+                        <input type="hidden" name="id" value={i.id} />
+                        <input name="datetime" type="datetime-local" defaultValue={defaultDatetime} className="rounded border border-ink/15 bg-white px-1.5 py-0.5 text-xs" />
+                        <button className="brand-heading text-xs text-agave hover:underline">Schedule</button>
+                      </form>
+                      <form action={deletePost}>
+                        <input type="hidden" name="id" value={i.id} />
+                        <button className="text-xs text-slate/50 hover:text-burnt">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card title="Recurring series">
+            {series.length > 0 && (
+              <div className="mb-3 space-y-2">
+                {series.map((s) => (
+                  <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-md border border-ink/8 bg-white/60 px-3 py-2">
+                    <div className="min-w-32 flex-1">
+                      <div className="text-sm font-medium">{s.name}</div>
+                      <div className="text-xs text-slate/70">
+                        Every {DOW[s.dayOfWeek]} at {s.time} · {chLabel(s.channel)}
+                      </div>
+                    </div>
+                    {s.active ? <Badge tone="green">Active</Badge> : <Badge>Paused</Badge>}
+                    <form action={toggleSeries}>
+                      <input type="hidden" name="id" value={s.id} />
+                      <button className="text-xs text-agave-deep hover:underline">{s.active ? "Pause" : "Resume"}</button>
+                    </form>
+                    <form action={deleteSeries}>
+                      <input type="hidden" name="id" value={s.id} />
+                      <button className="text-xs text-slate/50 hover:text-burnt">Delete</button>
+                    </form>
+                  </div>
+                ))}
+              </div>
+            )}
+            <form action={createSeries} className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Series name">
+                  <input name="name" required placeholder="Margarita Monday" className={inputCls} />
+                </Field>
+                <Field label="Title template">
+                  <input name="titleTemplate" placeholder="Margarita Monday — {date}" className={inputCls} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Field label="Day">
+                  <select name="dayOfWeek" defaultValue="1" className={inputCls}>
+                    {DOW.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                  </select>
+                </Field>
+                <Field label="Time">
+                  <input name="time" type="time" defaultValue="09:00" className={inputCls} />
+                </Field>
+                <Field label="Channel">
+                  <select name="channel" defaultValue={ig && fb ? "IG_FB" : "INSTAGRAM"} className={inputCls}>
+                    {CHANNELS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Caption starter (optional)">
+                <input name="captionTemplate" placeholder="It's Margarita Monday — this week:" className={inputCls} />
+              </Field>
+              <Field label="Hashtags (optional)">
+                <input name="hashtags" placeholder="#DeNada #MargaritaMonday" className={inputCls} />
+              </Field>
+              <button className={btnCls}>Add series</button>
+              <p className="text-xs text-slate/70">
+                Placeholder ideas appear on the calendar two weeks ahead — fill each one with that
+                week&apos;s content and schedule it.
+              </p>
+            </form>
           </Card>
 
           {me?.role === "ADMIN" && (

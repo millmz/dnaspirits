@@ -93,7 +93,11 @@ export async function register() {
     // mirror the live IG/FB feed onto the calendar, then refresh analytics —
     // imported posts get metrics from the same pass
     const refresh = () =>
-      importLiveFeed()
+      import("./lib/series")
+        .then(({ materializeSeries }) => materializeSeries())
+        .then((n) => { if (n) console.log(`series: materialized ${n} upcoming post(s)`); })
+        .catch((e) => console.error("series: materialize failed:", e))
+        .then(() => importLiveFeed())
         .then((s) => {
           if (s.ig || s.fb) console.log(`meta: imported ${s.ig} IG + ${s.fb} FB live posts`);
           if (s.errors.length) console.warn(`meta: feed import issues: ${s.errors.join("; ")}`);

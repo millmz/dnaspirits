@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Readable } from "stream";
 import { db } from "@/lib/db";
-import { openMediaStream } from "@/lib/media";
+import { openMediaStream, mediaObjectKey } from "@/lib/media";
 
 /**
  * Public media serving for post images/videos. Deliberately unauthenticated:
@@ -21,6 +21,24 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (m && (m[1] || m[2])) {
     start = m[1] ? parseInt(m[1], 10) : undefined;
     end = m[2] ? parseInt(m[2], 10) : undefined;
+  }
+
+  // R2-held media: proxy from the bucket, passing the Range through
+  if (asset.storage === "r2") {
+    const { fetchObject } = await import("@/lib/offsite");
+    const r2 = await fetchObject(mediaObjectKey(asset), range ?? undefined);
+    if (!r2.ok && r2.status !== 206) return new NextResponse("Not found", { status: 404 });
+    const headers = new Headers({
+      "Content-Type": asset.mime,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "public, max-age=86400, immutable",
+      "Content-Disposition": "inline",
+    });
+    for (const h of ["content-length", "content-range"]) {
+      const v = r2.headers.get(h);
+      if (v) headers.set(h, v);
+    }
+    return new NextResponse(r2.body, { status: r2.status === 206 ? 206 : 200, headers });
   }
 
   const opened = openMediaStream(asset, start, end);

@@ -72,14 +72,30 @@ type MediaItem = { id: string; mime: string; position: number };
 type PostForPublish = {
   id: string;
   channel: string;
+  format: string;
   caption: string;
   hashtags: string;
+  firstComment: string;
   igChildIds: string;
   igCreationId: string;
   fbPostId: string;
   items: MediaItem[];
   assetUrl: string;
 };
+
+/**
+ * Auto-post the first comment (usually hashtags) after a post goes live.
+ * Best-effort: needs instagram_manage_comments / pages_manage_engagement on
+ * the token — a missing permission must never fail the publish itself.
+ */
+async function postFirstComment(p: PostForPublish, targetId: string) {
+  if (!p.firstComment.trim() || !targetId) return;
+  try {
+    await graph(`/${targetId}/comments`, { message: p.firstComment.trim() }, "POST");
+  } catch (e) {
+    console.warn(`meta: first comment failed for post ${p.id} (needs comment permissions?):`, e);
+  }
+}
 
 function fullCaption(p: { caption: string; hashtags: string }): string {
   return [p.caption, p.hashtags].filter(Boolean).join("\n\n");
@@ -128,6 +144,7 @@ async function markPosted(postId: string, data: Record<string, unknown>) {
  * Throws with a human-readable message on failure.
  */
 export async function publishStep(p: PostForPublish): Promise<boolean> {
+  if (p.format === "STORY") return publishStory(p);
   if (p.channel === "INSTAGRAM") return publishInstagram(p);
   if (p.channel === "FACEBOOK") return publishFacebook(p);
   if (p.channel === "IG_FB") {
@@ -140,6 +157,7 @@ export async function publishStep(p: PostForPublish): Promise<boolean> {
     if (!p.fbPostId) {
       const fbId = await publishFacebookRaw(p);
       await db.socialPost.update({ where: { id: p.id }, data: { fbPostId: fbId } });
+      await postFirstComment(p, fbId);
       p = { ...p, fbPostId: fbId };
     }
     return publishInstagram(p);
@@ -147,22 +165,75 @@ export async function publishStep(p: PostForPublish): Promise<boolean> {
   throw new Error(`Auto-publish supports Instagram and Facebook, not ${p.channel}.`);
 }
 
+/** Poll an in-flight IG container; when ready, publish + finish the post. */
+async function finishIgContainer(p: PostForPublish): Promise<boolean> {
+  const ig = process.env.META_IG_USER_ID!;
+  const code = await containerStatus(p.igCreationId);
+  if (code === "ERROR" || code === "EXPIRED") {
+    throw new Error(`Instagram could not process the media (status ${code}). Check the file format.`);
+  }
+  if (code !== "FINISHED") return false; // still processing — next tick
+  const pub = await graph(`/${ig}/media_publish`, { creation_id: p.igCreationId }, "POST");
+  const igId = String(pub.id ?? "");
+  await markPosted(p.id, { igMediaId: igId, igPermalink: await igPermalink(igId), igCreationId: "", igChildIds: "" });
+  if (p.format !== "STORY") await postFirstComment(p, igId); // stories can't take comments
+  return true;
+}
+
+/**
+ * Stories: exactly one photo/video. Instagram takes both via a STORIES
+ * container; Facebook Page stories are photo-only (a video story on IG_FB
+ * simply goes to Instagram alone).
+ */
+async function publishStory(p: PostForPublish): Promise<boolean> {
+  if (p.igCreationId) return finishIgContainer(p); // IG story video still processing
+
+  const media = mediaList(p);
+  if (media.length !== 1) throw new Error("A story takes exactly one photo or video — attach exactly one file.");
+  const [m] = media;
+  const wantIg = p.channel === "INSTAGRAM" || p.channel === "IG_FB";
+  const wantFb = p.channel === "FACEBOOK" || p.channel === "IG_FB";
+  if (!wantIg && !wantFb) throw new Error("Stories can only go to Instagram and/or Facebook.");
+  if (p.channel === "FACEBOOK" && m.video) {
+    throw new Error("Facebook stories support photos only — send video stories to Instagram.");
+  }
+
+  if (wantFb && !p.fbPostId && !m.video) {
+    if (!fbConfigured()) throw new Error("Facebook is not connected (set META_ACCESS_TOKEN and META_FB_PAGE_ID).");
+    const page = process.env.META_FB_PAGE_ID!;
+    const photo = await graph(`/${page}/photos`, { url: m.url, published: "false" }, "POST");
+    const photoId = String(photo.id ?? "");
+    if (!photoId) throw new Error("Facebook did not return a photo id for the story.");
+    const story = await graph(`/${page}/photo_stories`, { photo_id: photoId }, "POST");
+    const fbId = String(story.post_id ?? story.id ?? "");
+    await db.socialPost.update({ where: { id: p.id }, data: { fbPostId: fbId } });
+    p = { ...p, fbPostId: fbId };
+  }
+
+  if (!wantIg) {
+    await markPosted(p.id, { fbPostId: p.fbPostId });
+    return true;
+  }
+
+  if (!igConfigured()) throw new Error("Instagram is not connected (set META_ACCESS_TOKEN and META_IG_USER_ID).");
+  const ig = process.env.META_IG_USER_ID!;
+  const params: Record<string, string> = { media_type: "STORIES" };
+  if (m.video) params.video_url = m.url;
+  else params.image_url = m.url;
+  const container = await graph(`/${ig}/media`, params, "POST");
+  const creationId = String(container.id ?? "");
+  if (!creationId) throw new Error("Instagram did not return a story container id.");
+  await db.socialPost.update({ where: { id: p.id }, data: { igCreationId: creationId } });
+  // photo stories are usually ready instantly; video stories finish on a later tick
+  return finishIgContainer({ ...p, igCreationId: creationId });
+}
+
 async function publishInstagram(p: PostForPublish): Promise<boolean> {
   if (!igConfigured()) throw new Error("Instagram is not connected (set META_ACCESS_TOKEN and META_IG_USER_ID).");
   const ig = process.env.META_IG_USER_ID!;
 
   // Final container exists (single video/reel or assembled carousel) — poll, publish.
-  if (p.igCreationId) {
-    const code = await containerStatus(p.igCreationId);
-    if (code === "ERROR" || code === "EXPIRED") {
-      throw new Error(`Instagram could not process the media (status ${code}). Check the file format.`);
-    }
-    if (code !== "FINISHED") return false; // still processing — next tick
-    const pub = await graph(`/${ig}/media_publish`, { creation_id: p.igCreationId }, "POST");
-    const igId = String(pub.id ?? "");
-    await markPosted(p.id, { igMediaId: igId, igPermalink: await igPermalink(igId), igCreationId: "", igChildIds: "" });
-    return true;
-  }
+  if (p.igCreationId) return finishIgContainer(p);
 
   // Carousel children pending — wait for all to finish, then assemble.
   if (p.igChildIds) {
@@ -213,6 +284,7 @@ async function publishInstagram(p: PostForPublish): Promise<boolean> {
     const pub = await graph(`/${ig}/media_publish`, { creation_id: creationId }, "POST");
     const igId = String(pub.id ?? "");
     await markPosted(p.id, { igMediaId: igId, igPermalink: await igPermalink(igId) });
+    await postFirstComment(p, igId);
     return true;
   }
 
@@ -277,6 +349,7 @@ async function publishFacebookRaw(p: PostForPublish): Promise<string> {
 async function publishFacebook(p: PostForPublish): Promise<boolean> {
   const fbId = await publishFacebookRaw(p);
   await markPosted(p.id, { fbPostId: fbId });
+  await postFirstComment(p, fbId);
   return true;
 }
 
@@ -646,16 +719,73 @@ export async function exchangeForPageTokens(
   }
 }
 
+/**
+ * Account-level snapshot: follower counts (both platforms) and IG's daily
+ * reach + profile views. Tolerant of partial failures.
+ */
+export async function snapshotAccountMetrics(): Promise<string[]> {
+  const errors: string[] = [];
+  const insightValue = (json: Record<string, unknown>, name: string): number => {
+    for (const row of (json.data as Array<Record<string, unknown>> | undefined) ?? []) {
+      if (String(row.name) !== name) continue;
+      const total = row.total_value as { value?: unknown } | undefined;
+      if (total) return toInt(total.value);
+      const values = row.values as Array<{ value?: unknown }> | undefined;
+      return toInt(values?.[values.length - 1]?.value);
+    }
+    return 0;
+  };
+
+  if (igConfigured()) {
+    try {
+      const ig = process.env.META_IG_USER_ID!;
+      const who = await graph(`/${ig}`, { fields: "followers_count" });
+      let reach = 0;
+      let profileViews = 0;
+      try {
+        const ins = await graph(`/${ig}/insights`, {
+          metric: "reach,profile_views",
+          period: "day",
+          metric_type: "total_value",
+        });
+        reach = insightValue(ins, "reach");
+        profileViews = insightValue(ins, "profile_views");
+      } catch {
+        // some account types lack these metrics — keep followers
+      }
+      await db.accountMetric.create({
+        data: { platform: "INSTAGRAM", followers: toInt(who.followers_count), reach, profileViews },
+      });
+    } catch (e) {
+      errors.push(`IG account: ${errMsg(e)}`);
+    }
+  }
+  if (fbConfigured()) {
+    try {
+      const page = process.env.META_FB_PAGE_ID!;
+      const who = await graph(`/${page}`, { fields: "followers_count,fan_count" });
+      await db.accountMetric.create({
+        data: { platform: "FACEBOOK", followers: toInt(who.followers_count) || toInt(who.fan_count) },
+      });
+    } catch (e) {
+      errors.push(`FB account: ${errMsg(e)}`);
+    }
+  }
+  return errors;
+}
+
 /** Refresh metrics for all published posts. Returns how many were updated. */
 export async function runMetricsRefresh(): Promise<{ updated: number; errors: string[] }> {
   if (!metaConfigured()) return { updated: 0, errors: ["Meta is not connected."] };
+  const accountErrors = await snapshotAccountMetrics();
   const posts = await db.socialPost.findMany({
-    where: { status: "POSTED", OR: [{ igMediaId: { not: "" } }, { fbPostId: { not: "" } }] },
+    // stories expire after 24h and use different insight metrics — feed only
+    where: { status: "POSTED", format: "FEED", OR: [{ igMediaId: { not: "" } }, { fbPostId: { not: "" } }] },
     select: { id: true, title: true, igMediaId: true, fbPostId: true },
     take: 200,
   });
   let updated = 0;
-  const errors: string[] = [];
+  const errors: string[] = [...accountErrors];
   for (const p of posts) {
     try {
       await snapshotPostMetrics(p);

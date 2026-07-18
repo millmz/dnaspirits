@@ -122,6 +122,97 @@ export async function retryPublish(formData: FormData) {
   revalidatePath("/content");
 }
 
+/** Quick idea capture: title only, lands in the backlog (no date). */
+export async function createIdea(formData: FormData) {
+  await requireOps();
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) return;
+  await db.socialPost.create({
+    data: { title: title.slice(0, 300), status: "IDEA", unscheduled: true, date: new Date() },
+  });
+  revalidatePath("/content");
+}
+
+/** Put a backlog idea on the calendar. */
+export async function scheduleIdea(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  const post = await db.socialPost.findUnique({ where: { id } });
+  if (!post || !post.unscheduled) return;
+  await db.socialPost.update({
+    where: { id },
+    data: { unscheduled: false, date: toDate(formData.get("datetime") as string) },
+  });
+  revalidatePath("/content");
+}
+
+/** Copy a post's text/settings as a new backlog idea (media not copied). */
+export async function duplicatePost(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  const post = await db.socialPost.findUnique({ where: { id } });
+  if (!post) return;
+  await db.socialPost.create({
+    data: {
+      title: `${post.title} (copy)`.slice(0, 300),
+      caption: post.caption,
+      hashtags: post.hashtags,
+      firstComment: post.firstComment,
+      channel: post.channel,
+      format: post.format,
+      notes: post.notes,
+      status: "IDEA",
+      unscheduled: true,
+      date: new Date(),
+    },
+  });
+  revalidatePath("/content");
+}
+
+/** Recurring series management. */
+export async function createSeries(formData: FormData) {
+  await requireOps();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return;
+  const dow = Number(formData.get("dayOfWeek"));
+  await db.postSeries.create({
+    data: {
+      name: name.slice(0, 200),
+      dayOfWeek: dow >= 0 && dow <= 6 ? dow : 1,
+      time: /^\d{2}:\d{2}$/.test(String(formData.get("time"))) ? String(formData.get("time")) : "09:00",
+      channel: String(formData.get("channel") ?? "IG_FB"),
+      titleTemplate: String(formData.get("titleTemplate") ?? "").trim() || name,
+      captionTemplate: String(formData.get("captionTemplate") ?? "").trim(),
+      hashtags: String(formData.get("hashtags") ?? "").trim(),
+    },
+  });
+  const { materializeSeries } = await import("@/lib/series");
+  await materializeSeries();
+  revalidatePath("/content");
+}
+
+export async function toggleSeries(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  const s = await db.postSeries.findUnique({ where: { id } });
+  if (!s) return;
+  await db.postSeries.update({ where: { id }, data: { active: !s.active } });
+  if (!s.active) {
+    const { materializeSeries } = await import("@/lib/series");
+    await materializeSeries();
+  }
+  revalidatePath("/content");
+}
+
+export async function deleteSeries(formData: FormData) {
+  await requireOps();
+  const id = String(formData.get("id"));
+  // future placeholders that are still untouched ideas go with the series
+  await db.socialPost.deleteMany({ where: { seriesId: id, status: "IDEA", date: { gt: new Date() } } });
+  await db.postSeries.delete({ where: { id } }).catch(() => undefined);
+  revalidatePath("/content");
+}
+
 /** Pull everything already live on IG/FB onto the calendar. */
 export async function syncLiveFeed() {
   await requireOps();

@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "crypto";
-import { readFileSync, existsSync, writeFileSync, statfsSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, statfsSync, rmSync } from "fs";
 import { join } from "path";
 import { db } from "./db";
 import { backupDatabase, backupDir } from "./backup";
@@ -34,7 +34,12 @@ const sha256hex = (data: Buffer | string) => createHash("sha256").update(data).d
 const hmac = (key: Buffer | string, data: string) => createHmac("sha256", key).update(data).digest();
 
 /** Signed S3 request (SigV4, path-style). */
-async function s3Request(method: "PUT" | "HEAD", key: string, body?: Buffer): Promise<Response> {
+async function s3Request(
+  method: "PUT" | "HEAD" | "GET" | "DELETE",
+  key: string,
+  body?: Buffer,
+  range?: string
+): Promise<Response> {
   const endpoint = process.env.OFFSITE_S3_ENDPOINT!.replace(/\/$/, "");
   const bucket = process.env.OFFSITE_S3_BUCKET!;
   const accessKey = process.env.OFFSITE_S3_ACCESS_KEY_ID!;
@@ -52,8 +57,11 @@ async function s3Request(method: "PUT" | "HEAD", key: string, body?: Buffer): Pr
     .split("/")
     .map((p) => encodeURIComponent(p))
     .join("/");
-  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
-  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  // range participates in signing when present (headers must be sorted)
+  const canonicalHeaders = range
+    ? `host:${host}\nrange:${range}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`
+    : `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = range ? "host;range;x-amz-content-sha256;x-amz-date" : "host;x-amz-content-sha256;x-amz-date";
   const canonicalRequest = [method, canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
 
   const scope = `${dateStamp}/${region}/s3/aws4_request`;
@@ -71,10 +79,25 @@ async function s3Request(method: "PUT" | "HEAD", key: string, body?: Buffer): Pr
       "x-amz-content-sha256": payloadHash,
       Authorization: `AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
       ...(body ? { "Content-Length": String(body.length) } : {}),
+      ...(range ? { Range: range } : {}),
     },
     body: body as BodyInit | undefined,
     signal: AbortSignal.timeout(120_000),
   });
+}
+
+/** Fetch an object (optionally a byte range) — used to serve R2-held media. */
+export async function fetchObject(key: string, range?: string): Promise<Response> {
+  return s3Request("GET", key, undefined, range);
+}
+
+export async function deleteObject(key: string): Promise<void> {
+  await s3Request("DELETE", key).catch(() => undefined); // best-effort
+}
+
+/** Upload a media file's bytes under its stable media/ key. */
+export async function uploadMediaObject(key: string, body: Buffer): Promise<void> {
+  await upload(key, body);
 }
 
 async function objectExists(key: string): Promise<boolean> {
@@ -136,12 +159,15 @@ export async function runOffsiteBackup(): Promise<OffsiteStatus> {
       if (!existsSync(local)) continue;
       const key = `media/${local.split("/").pop()}`;
       try {
-        if (await objectExists(key)) {
+        if (!(await objectExists(key))) {
+          await upload(key, readFileSync(local));
+          mediaUploaded++;
+        } else {
           mediaSkipped++;
-          continue;
         }
-        await upload(key, readFileSync(local));
-        mediaUploaded++;
+        // bytes are safely in the bucket — serve from there and free the disk
+        await db.mediaAsset.update({ where: { id: asset.id }, data: { storage: "r2" } });
+        rmSync(local, { force: true });
       } catch (e) {
         errors.push(`${key}: ${e instanceof Error ? e.message : "failed"}`);
       }

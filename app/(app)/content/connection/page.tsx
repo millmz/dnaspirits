@@ -74,8 +74,12 @@ export default async function ConnectionPage() {
                 from the dropdown):
                 <div className="mt-1 rounded-md bg-white px-3 py-2 font-mono text-xs">
                   pages_show_list · pages_manage_posts · pages_read_engagement · business_management ·
-                  instagram_basic · instagram_content_publish · instagram_manage_insights
+                  instagram_basic · instagram_content_publish · instagram_manage_insights ·
+                  instagram_manage_comments · pages_manage_engagement
                 </div>
+                <p className="mt-1 text-xs text-slate/70">
+                  (The last two power the auto &ldquo;first comment&rdquo; feature — optional but recommended.)
+                </p>
               </li>
               <li>
                 Click <span className="font-medium">Generate Access Token</span> and approve — make sure the

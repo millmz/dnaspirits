@@ -96,11 +96,39 @@ export async function saveMedia(
   return { ok: true, id: asset.id };
 }
 
-/** Delete one asset: file on disk + row, then close the position gap. */
+/** Stable object key in the offsite bucket (same shape the backup pass uses). */
+export function mediaObjectKey(asset: { id: string; mime: string }): string {
+  return `media/${asset.id}.${EXT[asset.mime] ?? "bin"}`;
+}
+
+/**
+ * Move a finished upload's bytes to the R2 bucket and free the local disk.
+ * Best-effort: on any failure the file simply stays on disk ("disk" storage).
+ */
+export async function offloadToR2(asset: { id: string; mime: string }): Promise<void> {
+  const { offsiteConfigured, uploadMediaObject } = await import("./offsite");
+  if (!offsiteConfigured()) return;
+  const local = mediaFilePath(asset);
+  if (!existsSync(local)) return;
+  const { readFileSync } = await import("fs");
+  await uploadMediaObject(mediaObjectKey(asset), readFileSync(local));
+  await db.mediaAsset.update({ where: { id: asset.id }, data: { storage: "r2" } });
+  rmSync(local, { force: true });
+}
+
+async function removeAssetBytes(asset: { id: string; mime: string; storage: string }) {
+  rmSync(mediaFilePath(asset), { force: true });
+  if (asset.storage === "r2") {
+    const { offsiteConfigured, deleteObject } = await import("./offsite");
+    if (offsiteConfigured()) await deleteObject(mediaObjectKey(asset));
+  }
+}
+
+/** Delete one asset: bytes (disk or R2) + row, then close the position gap. */
 export async function deleteAsset(id: string) {
   const asset = await db.mediaAsset.findUnique({ where: { id } });
   if (!asset) return;
-  rmSync(mediaFilePath(asset), { force: true });
+  await removeAssetBytes(asset);
   await db.mediaAsset.delete({ where: { id } });
   if (asset.postId) await renumberPostMedia(asset.postId);
 }
@@ -108,7 +136,7 @@ export async function deleteAsset(id: string) {
 /** Delete every media file belonging to a post (call before deleting the post). */
 export async function deletePostMediaFiles(postId: string) {
   const assets = await db.mediaAsset.findMany({ where: { postId } });
-  for (const a of assets) rmSync(mediaFilePath(a), { force: true });
+  for (const a of assets) await removeAssetBytes(a);
 }
 
 /** Re-pack positions to 0..n-1 keeping current order. */

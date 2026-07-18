@@ -22,6 +22,35 @@ model User {
   createdAt          DateTime @default(now())
 }
 
+// Recurring content series ("Margarita Monday") — the worker materializes
+// upcoming occurrences as IDEA posts so the calendar prompts instead of
+// sitting empty.
+model PostSeries {
+  id              String   @id @default(cuid())
+  name            String
+  dayOfWeek       Int // 0=Sunday … 6=Saturday
+  time            String   @default("09:00") // HH:MM server-local
+  channel         String   @default("IG_FB")
+  titleTemplate   String
+  captionTemplate String   @default("")
+  hashtags        String   @default("")
+  weeksAhead      Int      @default(2)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+}
+
+// Account-level social metrics snapshots (followers, reach, profile views).
+model AccountMetric {
+  id           String   @id @default(cuid())
+  platform     String // INSTAGRAM | FACEBOOK
+  followers    Int      @default(0)
+  reach        Int      @default(0) // daily reach at snapshot time
+  profileViews Int      @default(0)
+  fetchedAt    DateTime @default(now())
+
+  @@index([platform, fetchedAt])
+}
+
 // Sign-in audit trail (successes and failures), pruned after 90 days.
 model LoginEvent {
   id        String   @id @default(cuid())
@@ -350,6 +379,10 @@ model SocialPost {
   status      String   @default("IDEA") // IDEA | DRAFTED | SCHEDULED | POSTED
   source      String   @default("MANUAL")
   approved    Boolean  @default(true)
+  format       String   @default("FEED") // FEED | STORY
+  firstComment String   @default("") // auto-posted as the first comment after publish
+  unscheduled  Boolean  @default(false) // idea backlog entry — hidden from the calendar grid
+  seriesId     String   @default("") // PostSeries that materialized this post
   // uploaded media, ordered by position — 2+ items publish as an IG carousel
   items       MediaAsset[]
   // Meta (IG/FB) publishing
@@ -373,6 +406,7 @@ model MediaAsset {
   postId    String?
   post      SocialPost? @relation(fields: [postId], references: [id], onDelete: Cascade)
   position  Int         @default(0) // order within the post; 0 is the cover
+  storage   String      @default("disk") // disk | r2 — where the bytes live
   createdAt DateTime    @default(now())
 
   @@index([postId, position])

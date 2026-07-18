@@ -2,7 +2,7 @@ import { appendFileSync, renameSync, rmSync, statSync, existsSync, writeFileSync
 import { join } from "path";
 import { db } from "@/lib/db";
 import { apiOpsUser } from "@/lib/api-auth";
-import { mediaRejectReason, mediaFilePath, uploadTmpDir, MAX_MEDIA_BYTES } from "@/lib/media";
+import { mediaRejectReason, mediaFilePath, uploadTmpDir, offloadToR2, MAX_MEDIA_BYTES } from "@/lib/media";
 
 const MAX_ITEMS = 10; // IG carousel limit
 const MAX_CHUNK = 8 * 1024 * 1024; // client sends 6MB; allow headroom
@@ -70,6 +70,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       data: { filename, mime, bytes: size, postId, position: post.items.length },
     });
     renameSync(part, mediaFilePath(asset));
+    // free the local disk in the background — file stays on disk if this fails
+    offloadToR2(asset).catch((e) => console.error(`media: R2 offload failed for ${asset.id}:`, e));
     return Response.json({ ok: true, done: true, assetId: asset.id });
   } catch (e) {
     rmSync(part, { force: true });
