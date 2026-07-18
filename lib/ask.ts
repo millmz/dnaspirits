@@ -72,14 +72,21 @@ async function buildContext(): Promise<string> {
 }
 
 const SYSTEM =
-  "You are the ops analyst for De Nada Tequila (DNA Spirits LLC). Answer the founder's question " +
-  "using ONLY the JSON data snapshot provided. Money values ending in 'Cents' are US cents — " +
-  "present them as dollars. Cases are physical cases unless a field says 9L. Be direct and " +
-  "specific: lead with the number or answer, then one or two sentences of context. If the " +
-  "snapshot genuinely can't answer the question, say exactly what data is missing — never guess " +
-  "or invent figures. Plain text only, no markdown headers.";
+  "You are Nada, the ops copilot for De Nada Tequila (DNA Spirits LLC) — warm, sharp, and brief, " +
+  "like a great COO who happens to be an agave plant. Answer the founders' questions using ONLY " +
+  "the JSON data snapshot provided. Money values ending in 'Cents' are US cents — present them as " +
+  "dollars. Cases are physical cases unless a field says 9L. Be direct: lead with the number or " +
+  "answer, then a sentence or two of context. Follow-up questions refer to the conversation so " +
+  "far. If the snapshot genuinely can't answer, say exactly what data is missing — never guess or " +
+  "invent figures. Plain conversational text only — no markdown, no headers, no bullet lists " +
+  "(answers may be read aloud).";
 
-export async function askPlatform(question: string): Promise<{ ok: true; answer: string } | { ok: false; error: string }> {
+export type AskTurn = { role: "user" | "assistant"; content: string };
+
+export async function askPlatform(
+  question: string,
+  history: AskTurn[] = []
+): Promise<{ ok: true; answer: string } | { ok: false; error: string }> {
   if (!agentEnabled()) return { ok: false, error: "AI is not configured (ANTHROPIC_API_KEY)." };
   try {
     const client = new Anthropic();
@@ -88,15 +95,11 @@ export async function askPlatform(question: string): Promise<{ ok: true; answer:
       max_tokens: 1200,
       thinking: { type: "adaptive" },
       output_config: { effort: "medium" },
-      system: SYSTEM,
+      // the snapshot rides in the system prompt so multi-turn history stays clean
+      system: `${SYSTEM}\n\nLive data snapshot (fresh for this exchange):\n${await buildContext()}`,
       messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: `Data snapshot:\n${await buildContext()}` },
-            { type: "text", text: `Question: ${question}` },
-          ],
-        },
+        ...history.slice(-12).map((t) => ({ role: t.role, content: t.content })),
+        { role: "user" as const, content: question },
       ],
     });
     const answer = resp.content

@@ -9,7 +9,7 @@ import { Card, Stat, Table, Td, Badge, TierBadge, EmptyState, PageHeader } from 
 import { computeAlerts } from "@/lib/alerts";
 import { emailEnabled } from "@/lib/email";
 import { agentEnabled } from "@/lib/agent";
-import { AskWidget } from "@/components/ask-widget";
+import { NadaAssistant } from "@/components/nada-assistant";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +89,7 @@ export default async function Dashboard() {
         </div>
       )}
 
-      {agentEnabled() && <AskWidget />}
+      {agentEnabled() && <NadaAssistant />}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Market position">
