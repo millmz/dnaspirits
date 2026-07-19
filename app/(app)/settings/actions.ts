@@ -75,6 +75,17 @@ export async function forceSignOut(formData: FormData) {
   revalidatePath("/settings");
 }
 
+/** Edit Nada's always-loaded core knowledge. */
+export async function saveNadaKnowledge(formData: FormData) {
+  await requireAdmin();
+  const text = String(formData.get("knowledge") ?? "").slice(0, 20000);
+  if (!text.trim()) return;
+  const { writeKnowledge } = await import("@/lib/nada");
+  writeKnowledge(text);
+  const { redirect } = await import("next/navigation");
+  redirect("/settings?nada=saved");
+}
+
 /** Edit Nada's personality — takes effect on her very next reply. */
 export async function saveNadaIdentity(formData: FormData) {
   await requireAdmin();

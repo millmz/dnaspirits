@@ -5,6 +5,8 @@ import { logout } from "@/app/login/actions";
 import { NavLinks } from "@/components/nav-links";
 import { MobileNav } from "@/components/mobile-nav";
 import { CommandPalette } from "@/components/command-palette";
+import { NadaOrb } from "@/components/nada-assistant";
+import { agentEnabled } from "@/lib/agent";
 
 export default async function AppLayout({
   children,
@@ -46,6 +48,7 @@ export default async function AppLayout({
       <MobileNav role={user.role} name={user.name} email={user.email} logout={logout} />
 
       {user.role !== "BOOKKEEPER" && <CommandPalette />}
+      {user.role !== "BOOKKEEPER" && agentEnabled() && <NadaOrb />}
 
       <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:ml-60 lg:px-8 lg:py-8">{children}</main>
     </div>

@@ -51,6 +51,30 @@ model AccountMetric {
   @@index([platform, fetchedAt])
 }
 
+// Nada's working memory: conversations persist across reloads and restarts.
+model NadaSession {
+  id        String     @id @default(cuid())
+  title     String     @default("")
+  userId    String     @default("")
+  extracted Boolean    @default(false) // long-term memory extractor has processed this session
+  startedAt DateTime   @default(now())
+  lastAt    DateTime   @default(now())
+  turns     NadaTurn[]
+
+  @@index([lastAt])
+}
+
+model NadaTurn {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   NadaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String // user | assistant
+  content   String
+  createdAt DateTime    @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
 // Small key-value store: alert send markers, investor-update commentary, etc.
 model Setting {
   key       String   @id

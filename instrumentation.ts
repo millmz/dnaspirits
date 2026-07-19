@@ -99,6 +99,16 @@ export async function register() {
     console.warn("alerts: RESEND_API_KEY / ALERT_EMAIL_TO not set — email alerts off");
   }
 
+  // Nada's long-term memory extractor: quiet sessions get distilled into
+  // durable memories (deduped, secrets-free) — no-ops without the AI key.
+  const { runNadaExtractor } = await import("./lib/ask");
+  const nadaTick = () =>
+    runNadaExtractor()
+      .then((r) => { if (r.saved) console.log(`nada: extracted ${r.saved} memorie(s) from ${r.sessions} session(s)`); })
+      .catch((e) => console.error("nada: extractor failed:", e));
+  setTimeout(nadaTick, 5 * 60 * 1000).unref?.();
+  setInterval(nadaTick, 60 * 60 * 1000).unref?.();
+
   // Meta (IG/FB) content worker: publish due posts every minute, refresh
   // post analytics twice a day. No-ops unless META_* env vars are set.
   const { runPublisherTick, runMetricsRefresh, importLiveFeed, metaConfigured } = await import("./lib/meta");

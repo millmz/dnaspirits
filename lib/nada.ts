@@ -55,22 +55,56 @@ help freely given, no fuss made about it.
 - She keeps the thread: follow-up questions refer to the conversation so far.
 `;
 
-let identityCache: { mtimeMs: number; text: string } | null = null;
+const knowledgePath = () => join(nadaDir(), "knowledge.md");
+
+export const DEFAULT_KNOWLEDGE = `# What Nada always knows
+
+(Edit this freely — it's the stable story of the business that the live data
+can't tell. Nada carries every line of it into every conversation.)
+
+- The company is DNA Spirits LLC, doing business as Tequila De Nada — an
+  additive-free tequila brand founded by Danny and Adam.
+- "De nada" means "you're welcome" — the brand is about generous hosting:
+  warm, host-first, never flashy.
+- The tequila is produced at a contract distillery in Mexico. De Nada buys
+  dry goods (glass, corks, labels, shippers), the distillery bottles by lot,
+  and finished cases sell ex-works to the US importer, LSI.
+- LSI sells through to distributors; De Nada tracks channel inventory and
+  depletion reports to see real sell-through.
+- Chargebacks from LSI (promos, samples, freight) are trade spend and net
+  against revenue.
+- The ops platform is ops.denadatequila.com; Instagram and Facebook run
+  through its content calendar.
+`;
+
+const fileCaches = new Map<string, { mtimeMs: number; text: string }>();
+
+function readLiveFile(path: string, seed: string): string {
+  if (!existsSync(path)) writeFileSync(path, seed);
+  const mtimeMs = statSync(path).mtimeMs;
+  const hit = fileCaches.get(path);
+  if (hit && hit.mtimeMs === mtimeMs) return hit.text;
+  const text = readFileSync(path, "utf8");
+  fileCaches.set(path, { mtimeMs, text });
+  return text;
+}
 
 /** Nada's personality, re-read whenever the file changes (mtime-cached). */
 export function readIdentity(): string {
-  const p = identityPath();
-  if (!existsSync(p)) {
-    writeFileSync(p, DEFAULT_IDENTITY);
-  }
-  const mtimeMs = statSync(p).mtimeMs;
-  if (!identityCache || identityCache.mtimeMs !== mtimeMs) {
-    identityCache = { mtimeMs, text: readFileSync(p, "utf8") };
-  }
-  return identityCache.text;
+  return readLiveFile(identityPath(), DEFAULT_IDENTITY);
 }
 
 export function writeIdentity(text: string): void {
   writeFileSync(identityPath(), text.trim() + "\n");
-  identityCache = null;
+  fileCaches.delete(identityPath());
+}
+
+/** Curated always-loaded facts — human-owned, read-only to Nada. */
+export function readKnowledge(): string {
+  return readLiveFile(knowledgePath(), DEFAULT_KNOWLEDGE);
+}
+
+export function writeKnowledge(text: string): void {
+  writeFileSync(knowledgePath(), text.trim() + "\n");
+  fileCaches.delete(knowledgePath());
 }

@@ -8,8 +8,6 @@ import { money, num, dateStr, currentPeriod } from "@/lib/format";
 import { Card, Stat, Table, Td, Badge, TierBadge, EmptyState, PageHeader } from "@/components/ui";
 import { computeAlerts } from "@/lib/alerts";
 import { emailEnabled } from "@/lib/email";
-import { agentEnabled } from "@/lib/agent";
-import { NadaAssistant } from "@/components/nada-assistant";
 
 export const dynamic = "force-dynamic";
 
@@ -88,8 +86,6 @@ export default async function Dashboard() {
           )}
         </div>
       )}
-
-      {agentEnabled() && <NadaAssistant />}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Market position">

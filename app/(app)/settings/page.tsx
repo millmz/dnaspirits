@@ -5,8 +5,8 @@ import { listBackups } from "@/lib/backup";
 import { offsiteConfigured, lastOffsiteStatus, diskUsage } from "@/lib/offsite";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { emailEnabled, emailRecipients } from "@/lib/email";
-import { readIdentity } from "@/lib/nada";
-import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow, sendTestAlertEmail, saveNadaIdentity } from "./actions";
+import { readIdentity, readKnowledge } from "@/lib/nada";
+import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow, sendTestAlertEmail, saveNadaIdentity, saveNadaKnowledge } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
 
 export default async function SettingsPage({
@@ -151,6 +151,23 @@ export default async function SettingsPage({
             is. Edit it like a note to a new hire. It lives on the data disk (survives deploys,
             rides the backups) and reloads the moment you save.
           </p>
+          <div className="mt-4 border-t border-ink/10 pt-4">
+            <div className="brand-heading mb-2 text-xs text-agave-deep">Core knowledge (always loaded)</div>
+            <form action={saveNadaKnowledge} className="space-y-3">
+              <textarea
+                name="knowledge"
+                rows={10}
+                defaultValue={readKnowledge()}
+                className={`${inputCls} font-mono text-xs leading-relaxed`}
+              />
+              <SubmitButton>Save knowledge</SubmitButton>
+            </form>
+            <p className="mt-2 text-xs text-slate/70">
+              The stable story the live data can&apos;t tell — founders, business model, brand. Nada
+              carries every line into every conversation. Her learned memories live under{" "}
+              <span className="font-medium">Nada&apos;s Memory</span> in the sidebar.
+            </p>
+          </div>
         </Card>
 
         <Card title="Email alerts & weekly digest">

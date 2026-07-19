@@ -100,6 +100,7 @@ export function NavLinks({ role }: { role: string }) {
               Admin
             </div>
             {link({ href: "/settings", label: "Settings" })}
+            {link({ href: "/nada-memory", label: "Nada's Memory" })}
           </div>
         </>
       )}

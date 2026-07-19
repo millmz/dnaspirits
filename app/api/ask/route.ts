@@ -1,10 +1,12 @@
+import { db } from "@/lib/db";
 import { apiOpsUser } from "@/lib/api-auth";
-import { askPlatform, type AskTurn } from "@/lib/ask";
+import { askPlatform, getLatestSession } from "@/lib/ask";
 
+/** Ask Nada. Sessions persist server-side; the client only holds a session id. */
 export async function POST(req: Request) {
   const auth = await apiOpsUser(req);
   if (!auth.ok) return auth.res;
-  let body: { question?: unknown; history?: unknown };
+  let body: { question?: unknown; sessionId?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -12,18 +14,16 @@ export async function POST(req: Request) {
   }
   const question = String(body.question ?? "").trim().slice(0, 1000);
   if (!question) return Response.json({ ok: false, error: "Ask something." }, { status: 400 });
-  const history: AskTurn[] = Array.isArray(body.history)
-    ? body.history
-        .filter(
-          (t): t is { role: string; content: string } =>
-            !!t && typeof t === "object" && typeof (t as { content?: unknown }).content === "string"
-        )
-        .map((t) => ({
-          role: t.role === "assistant" ? ("assistant" as const) : ("user" as const),
-          content: t.content.slice(0, 4000),
-        }))
-        .slice(-12)
-    : [];
-  const r = await askPlatform(question, history);
+  const sessionId = typeof body.sessionId === "string" && /^[a-z0-9]+$/i.test(body.sessionId) ? body.sessionId : undefined;
+  const user = await db.user.findUnique({ where: { id: auth.userId }, select: { name: true } });
+  const r = await askPlatform(question, { sessionId, userName: user?.name ?? "" });
   return Response.json(r, { status: r.ok ? 200 : 502 });
+}
+
+/** Resume: the most recent conversation (last 24h), so a reload keeps the thread. */
+export async function GET(req: Request) {
+  const auth = await apiOpsUser(req);
+  if (!auth.ok) return auth.res;
+  const latest = await getLatestSession();
+  return Response.json({ ok: true, session: latest });
 }
