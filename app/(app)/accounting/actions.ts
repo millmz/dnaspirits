@@ -117,7 +117,7 @@ export async function importFinancials(formData: FormData) {
           period,
           account,
           kind: typeRaw.startsWith("inc") || typeRaw.startsWith("rev") ? "INCOME" : "EXPENSE",
-          amountCents: Math.round(Math.abs(amount) * 100),
+          amountCents: Math.round(amount * 100), // sign preserved — discounts/credits net correctly
         });
       }
     });

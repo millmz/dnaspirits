@@ -49,6 +49,7 @@ export function parseQbPnl(buf: Buffer): PnlParse {
   const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
   const warnings: string[] = [];
   const rows: PnlRow[] = [];
+  const seenPeriods = new Set<string>(); // a later sheet repeating months would double-count
 
   for (const sheetName of wb.SheetNames) {
     const grid: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
@@ -70,6 +71,12 @@ export function parseQbPnl(buf: Buffer): PnlParse {
       }
     }
     if (headerIdx === -1 || best === 0) continue; // not a by-month sheet
+    const sheetPeriods = periods.filter((p): p is string => !!p);
+    if (sheetPeriods.some((p) => seenPeriods.has(p))) {
+      warnings.push(`Sheet "${sheetName}" repeats months already imported from another sheet — skipped to avoid double counting.`);
+      continue;
+    }
+    sheetPeriods.forEach((p) => seenPeriods.add(p));
 
     let section: "INCOME" | "EXPENSE" | null = null;
     for (const row of grid.slice(headerIdx + 1)) {

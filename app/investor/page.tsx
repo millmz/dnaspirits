@@ -5,10 +5,26 @@ import { db } from "@/lib/db";
 import { getMonthlyKpis, getAnnualFinancials, ytdComparison, getMarketOverview, getChainOverview } from "@/lib/kpi";
 import { getMarketPosition } from "@/lib/market";
 import { money, num } from "@/lib/format";
+import { getSetting, setSetting } from "@/lib/settings";
+import { getNewsBrief } from "@/lib/news";
+import { redirect } from "next/navigation";
 import { BarChart } from "@/components/charts";
 import { PrintButton } from "@/components/print-button";
 
 export const dynamic = "force-dynamic";
+
+async function saveCategoryNote(formData: FormData) {
+  "use server";
+  await requireAdmin();
+  await setSetting("investor-category-note", String(formData.get("note") ?? "").slice(0, 4000));
+  redirect("/investor");
+}
+
+const DEFAULT_CATEGORY_NOTE =
+  "Tequila remains one of the strongest premium categories in US spirits, with growth concentrated " +
+  "in additive-free and higher-price-tier expressions — exactly where De Nada plays. Our thesis is " +
+  "unchanged: a genuine additive-free liquid, honest brand voice, and disciplined ex-works " +
+  "economics through our importer partnership.";
 
 /**
  * One-page investor update, assembled live from the data already in the
@@ -18,14 +34,19 @@ export const dynamic = "force-dynamic";
 export default async function InvestorPage() {
   await requireAdmin();
 
-  const [monthly, annualFin, markets, chains, position, capital] = await Promise.all([
-    getMonthlyKpis(),
-    getAnnualFinancials(),
-    getMarketOverview(),
-    getChainOverview(),
-    getMarketPosition(),
-    db.capTableEntry.aggregate({ _sum: { capitalCents: true } }),
-  ]);
+  const [monthly, annualFin, markets, chains, position, capital, distributors, followers, catNote, brief] =
+    await Promise.all([
+      getMonthlyKpis(),
+      getAnnualFinancials(),
+      getMarketOverview(),
+      getChainOverview(),
+      getMarketPosition(),
+      db.capTableEntry.aggregate({ _sum: { capitalCents: true } }),
+      db.distributor.count(),
+      db.accountMetric.findFirst({ where: { platform: "INSTAGRAM" }, orderBy: { fetchedAt: "desc" } }),
+      getSetting("investor-category-note"),
+      getNewsBrief(),
+    ]);
 
   const now = new Date();
   const year = now.getFullYear();
@@ -42,6 +63,17 @@ export default async function InvestorPage() {
   const accounts = markets.rows.reduce((a, r) => a + r.accounts, 0);
 
   const years = [...annualFin.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 4);
+
+  // operating view of the current year — same math as the Accounting page:
+  // net revenue = ex-works shipments minus importer chargebacks (trade spend)
+  const thisYear = monthly.filter((m) => m.period.startsWith(`${year}-`));
+  const grossYtd = thisYear.reduce((a, m) => a + m.shipmentRevenueCents, 0);
+  const tradeYtd = thisYear.reduce((a, m) => a + m.chargebackCents, 0);
+  const cogsYtd = thisYear.reduce((a, m) => a + m.cogsCents, 0);
+  const netYtd = grossYtd - tradeYtd;
+  const marginYtd = netYtd > 0 ? Math.round(((netYtd - cogsYtd) / netYtd) * 100) : null;
+  const categoryNote = catNote || DEFAULT_CATEGORY_NOTE;
+  const headlines = (brief?.items ?? []).filter((i) => i.relevance >= 3).slice(0, 3);
 
   const stat = (label: string, value: string, hint?: string) => (
     <div className="rounded-md border border-ink/15 p-3">
@@ -81,6 +113,13 @@ export default async function InvestorPage() {
         {stat("Retail accounts", num(accounts), markets.asOf ? `across ${markets.rows.length} states (as of ${markets.asOf})` : "")}
       </section>
 
+      <section className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {stat(`Net revenue · ${year} YTD`, money(netYtd), `${money(grossYtd)} gross − ${money(tradeYtd)} trade spend`)}
+        {stat("Gross margin · YTD", marginYtd === null ? "—" : `${marginYtd}%`, "after COGS & trade spend")}
+        {stat("Distribution", `${markets.rows.length} states`, `${num(distributors)} distributor${distributors === 1 ? "" : "s"} via LSI`)}
+        {stat("Community", followers ? num(followers.followers) : "—", "Instagram followers")}
+      </section>
+
       <section className="mt-6">
         <div className="brand-heading mb-2 text-xs font-medium tracking-widest text-slate">
           SHIPMENTS IN VS DEPLETIONS OUT · LAST 12 MONTHS · 9L CASES
@@ -102,14 +141,14 @@ export default async function InvestorPage() {
             <thead>
               <tr className="border-b border-ink/20 text-left text-[11px] text-slate">
                 <th className="py-1">Year</th>
-                <th className="py-1 text-right">Revenue</th>
+                <th className="py-1 text-right">Revenue (QB)</th>
                 <th className="py-1 text-right">Net</th>
               </tr>
             </thead>
             <tbody>
               {years.map(([y, f]) => (
                 <tr key={y} className="border-b border-ink/8">
-                  <td className="py-1 font-medium">{y}</td>
+                  <td className="py-1 font-medium">{y}{y === String(year) ? " YTD" : ""}</td>
                   <td className="py-1 text-right">{money(f.income)}</td>
                   <td className={`py-1 text-right ${f.income - f.expense < 0 ? "text-burnt" : "text-agave-deep"}`}>
                     {money(f.income - f.expense)}
@@ -167,10 +206,42 @@ export default async function InvestorPage() {
         </section>
       )}
 
+      <section className="mt-6">
+        <div className="brand-heading mb-2 text-xs font-medium tracking-widest text-slate">
+          CATEGORY &amp; INDUSTRY
+        </div>
+        <p className="text-sm leading-relaxed text-ink/90">{categoryNote}</p>
+        {headlines.length > 0 && (
+          <ul className="mt-2 space-y-0.5 text-[12px] text-slate">
+            {headlines.map((h, i) => (
+              <li key={i}>
+                • {h.title} <span className="text-slate/60">({h.source}, {h.date.slice(0, 10)})</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <footer className="mt-8 border-t border-ink/20 pt-3 text-[10px] text-slate/70">
         Prepared from DNA Spirits LLC operating data (importer depletion reports, channel inventory and
-        QuickBooks financials). Confidential — not for distribution. De Nada Tequila® · Los Altos, Jalisco.
+        QuickBooks financials). Category headlines auto-pulled from trade press. Confidential — not for
+        distribution. De Nada Tequila® · Los Altos, Jalisco.
       </footer>
+
+      <form action={saveCategoryNote} className="mt-6 print:hidden">
+        <div className="brand-heading mb-1 text-[10px] tracking-widest text-slate">
+          EDIT THE CATEGORY &amp; INDUSTRY PARAGRAPH
+        </div>
+        <textarea
+          name="note"
+          rows={4}
+          defaultValue={categoryNote}
+          className="w-full rounded-md border border-ink/15 bg-white px-3 py-2 text-sm"
+        />
+        <button className="mt-2 rounded-md bg-agave px-4 py-2 text-sm font-medium text-cream hover:bg-agave-deep">
+          Save
+        </button>
+      </form>
     </div>
   );
 }

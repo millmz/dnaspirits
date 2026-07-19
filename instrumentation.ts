@@ -99,6 +99,12 @@ export async function register() {
     console.warn("alerts: RESEND_API_KEY / ALERT_EMAIL_TO not set — email alerts off");
   }
 
+  // Industry news brief: hourly staleness check, refreshes twice a day.
+  const { newsWorkerTick } = await import("./lib/news");
+  const newsTick = () => newsWorkerTick().catch((e) => console.error("news: refresh failed:", e));
+  setTimeout(newsTick, 4 * 60 * 1000).unref?.();
+  setInterval(newsTick, 60 * 60 * 1000).unref?.();
+
   // Nada's long-term memory extractor: quiet sessions get distilled into
   // durable memories (deduped, secrets-free) — no-ops without the AI key.
   const { runNadaExtractor } = await import("./lib/ask");
