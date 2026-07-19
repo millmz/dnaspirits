@@ -5,16 +5,17 @@ import { listBackups } from "@/lib/backup";
 import { offsiteConfigured, lastOffsiteStatus, diskUsage } from "@/lib/offsite";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { emailEnabled, emailRecipients } from "@/lib/email";
-import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow, sendTestAlertEmail } from "./actions";
+import { readIdentity } from "@/lib/nada";
+import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow, sendTestAlertEmail, saveNadaIdentity } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
 
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mail?: string }>;
+  searchParams: Promise<{ mail?: string; nada?: string }>;
 }) {
   const me = await requireAdmin();
-  const { mail } = await searchParams;
+  const { mail, nada } = await searchParams;
   const [users, warehouses, loginEvents] = await Promise.all([
     db.user.findMany({ orderBy: { createdAt: "asc" } }),
     db.warehouse.findMany({ orderBy: { name: "asc" } }),
@@ -128,6 +129,28 @@ export default async function SettingsPage({
             </Field>
             <SubmitButton>Add</SubmitButton>
           </form>
+        </Card>
+
+        <Card title="Nada — her personality (live)">
+          {nada === "saved" && (
+            <div className="mb-3 rounded-md bg-agave/10 px-3 py-2 text-sm text-agave-deep">
+              Saved — Nada&apos;s very next reply uses the new personality. No restart needed.
+            </div>
+          )}
+          <form action={saveNadaIdentity} className="space-y-3">
+            <textarea
+              name="identity"
+              rows={14}
+              defaultValue={readIdentity()}
+              className={`${inputCls} font-mono text-xs leading-relaxed`}
+            />
+            <SubmitButton>Save personality</SubmitButton>
+          </form>
+          <p className="mt-2 text-xs text-slate/70">
+            This plain-English file IS Nada — her voice, her rules of thumb, how blunt or gentle she
+            is. Edit it like a note to a new hire. It lives on the data disk (survives deploys,
+            rides the backups) and reloads the moment you save.
+          </p>
         </Card>
 
         <Card title="Email alerts & weekly digest">

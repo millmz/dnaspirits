@@ -75,6 +75,17 @@ export async function forceSignOut(formData: FormData) {
   revalidatePath("/settings");
 }
 
+/** Edit Nada's personality — takes effect on her very next reply. */
+export async function saveNadaIdentity(formData: FormData) {
+  await requireAdmin();
+  const text = String(formData.get("identity") ?? "").slice(0, 20000);
+  if (!text.trim()) return;
+  const { writeIdentity } = await import("@/lib/nada");
+  writeIdentity(text);
+  const { redirect } = await import("next/navigation");
+  redirect("/settings?nada=saved");
+}
+
 export async function sendTestAlertEmail() {
   await requireAdmin();
   const { sendTestDigest } = await import("@/lib/alerts");

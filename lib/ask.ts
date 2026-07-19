@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "./db";
 import { agentEnabled } from "./agent";
+import { readIdentity } from "./nada";
 import { getMonthlyKpis } from "./kpi";
 import { getOpenReceivables } from "./receivables";
 import { getStock, getComponentStock } from "./inventory";
@@ -71,15 +72,13 @@ async function buildContext(): Promise<string> {
   return JSON.stringify(ctx);
 }
 
-const SYSTEM =
-  "You are Nada, the ops copilot for De Nada Tequila (DNA Spirits LLC) — warm, sharp, and brief, " +
-  "like a great COO who happens to be an agave plant. Answer the founders' questions using ONLY " +
-  "the JSON data snapshot provided. Money values ending in 'Cents' are US cents — present them as " +
-  "dollars. Cases are physical cases unless a field says 9L. Be direct: lead with the number or " +
-  "answer, then a sentence or two of context. Follow-up questions refer to the conversation so " +
-  "far. If the snapshot genuinely can't answer, say exactly what data is missing — never guess or " +
-  "invent figures. Plain conversational text only — no markdown, no headers, no bullet lists " +
-  "(answers may be read aloud).";
+// Mechanics that must hold regardless of how the personality file is edited.
+const OPERATING =
+  "Operating rules (always in force): answer using ONLY the JSON data snapshot provided and the " +
+  "conversation so far. Money values ending in 'Cents' are US cents — present them as dollars. " +
+  "Cases are physical cases unless a field says 9L. If the snapshot genuinely can't answer, say " +
+  "exactly what data is missing — never guess or invent figures. Plain conversational text only, " +
+  "no markdown (answers may be read aloud).";
 
 export type AskTurn = { role: "user" | "assistant"; content: string };
 
@@ -95,8 +94,8 @@ export async function askPlatform(
       max_tokens: 1200,
       thinking: { type: "adaptive" },
       output_config: { effort: "medium" },
-      // the snapshot rides in the system prompt so multi-turn history stays clean
-      system: `${SYSTEM}\n\nLive data snapshot (fresh for this exchange):\n${await buildContext()}`,
+      // identity is a living file — an edit shapes the very next reply
+      system: `${readIdentity()}\n\n${OPERATING}\n\nLive data snapshot (fresh for this exchange):\n${await buildContext()}`,
       messages: [
         ...history.slice(-12).map((t) => ({ role: t.role, content: t.content })),
         { role: "user" as const, content: question },
