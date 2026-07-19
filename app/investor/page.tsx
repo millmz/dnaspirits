@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getMonthlyKpis, getAnnualFinancials, ytdComparison, getMarketOverview, getChainOverview } from "@/lib/kpi";
+import { getMonthlyKpis, ytdComparison, getMarketOverview, getChainOverview } from "@/lib/kpi";
 import { getMarketPosition } from "@/lib/market";
 import { money, num } from "@/lib/format";
 import { getSetting, setSetting } from "@/lib/settings";
@@ -34,14 +34,12 @@ const DEFAULT_CATEGORY_NOTE =
 export default async function InvestorPage() {
   await requireAdmin();
 
-  const [monthly, annualFin, markets, chains, position, capital, distributors, followers, catNote, brief] =
+  const [monthly, markets, chains, position, distributors, followers, catNote, brief] =
     await Promise.all([
       getMonthlyKpis(),
-      getAnnualFinancials(),
       getMarketOverview(),
       getChainOverview(),
       getMarketPosition(),
-      db.capTableEntry.aggregate({ _sum: { capitalCents: true } }),
       db.distributor.count(),
       db.accountMetric.findFirst({ where: { platform: "INSTAGRAM" }, orderBy: { fetchedAt: "desc" } }),
       getSetting("investor-category-note"),
@@ -61,8 +59,6 @@ export default async function InvestorPage() {
   const channelTotal = position.reduce((a, p) => a + p.channelCases, 0);
   const weeks = velocity > 0 ? Math.round((channelTotal / velocity) * 4.33) : null;
   const accounts = markets.rows.reduce((a, r) => a + r.accounts, 0);
-
-  const years = [...annualFin.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 4);
 
   // operating view of the current year — same math as the Accounting page:
   // net revenue = ex-works shipments minus importer chargebacks (trade spend)
@@ -134,34 +130,7 @@ export default async function InvestorPage() {
         />
       </section>
 
-      <section className="mt-6 grid gap-6 sm:grid-cols-2">
-        <div>
-          <div className="brand-heading mb-2 text-xs font-medium tracking-widest text-slate">FINANCIAL HISTORY</div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-ink/20 text-left text-[11px] text-slate">
-                <th className="py-1">Year</th>
-                <th className="py-1 text-right">Revenue (QB)</th>
-                <th className="py-1 text-right">Net</th>
-              </tr>
-            </thead>
-            <tbody>
-              {years.map(([y, f]) => (
-                <tr key={y} className="border-b border-ink/8">
-                  <td className="py-1 font-medium">{y}{y === String(year) ? " YTD" : ""}</td>
-                  <td className="py-1 text-right">{money(f.income)}</td>
-                  <td className={`py-1 text-right ${f.income - f.expense < 0 ? "text-burnt" : "text-agave-deep"}`}>
-                    {money(f.income - f.expense)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-2 text-[11px] text-slate/80">
-            Capital raised to date: {money(capital._sum.capitalCents ?? 0)}. Current year figures are YTD as uploaded.
-          </div>
-        </div>
-
+      <section className="mt-6">
         <div>
           <div className="brand-heading mb-2 text-xs font-medium tracking-widest text-slate">
             TOP MARKETS — YTD{markets.asOf ? ` (${markets.asOf})` : ""}
@@ -223,8 +192,7 @@ export default async function InvestorPage() {
       </section>
 
       <footer className="mt-8 border-t border-ink/20 pt-3 text-[10px] text-slate/70">
-        Prepared from DNA Spirits LLC operating data (importer depletion reports, channel inventory and
-        QuickBooks financials). Category headlines auto-pulled from trade press. Confidential — not for
+        Prepared from DNA Spirits LLC operating data (importer depletion reports and channel inventory). Category headlines auto-pulled from trade press. Confidential — not for
         distribution. De Nada Tequila® · Los Altos, Jalisco.
       </footer>
 
