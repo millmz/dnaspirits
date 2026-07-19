@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { inputCls } from "@/components/ui";
 import { postJson } from "@/lib/upload-client";
 
 type Turn = { role: "user" | "assistant"; content: string };
@@ -189,9 +188,9 @@ export function NadaOrb() {
         <button
           onClick={() => setOpen(true)}
           aria-label="Talk to Nada"
-          className="fixed bottom-24 right-5 z-40 rounded-full shadow-2xl transition-transform hover:scale-105 active:scale-95 lg:bottom-6 lg:right-6 print:hidden"
+          className="fixed bottom-24 right-4 z-40 rounded-full opacity-80 shadow-lg transition-all hover:scale-110 hover:opacity-100 active:scale-95 lg:bottom-5 lg:right-5 print:hidden"
         >
-          <AgaveAvatar mood="idle" size={64} />
+          <AgaveAvatar mood="idle" size={42} />
         </button>
       )}
 
@@ -272,7 +271,7 @@ export function NadaOrb() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={mood === "listening" ? "Listening…" : "Ask Nada anything…"}
-                className={`${inputCls} border-cream/20 bg-white/10 text-cream placeholder-cream/40 focus:border-agave`}
+                className="w-full rounded-md border border-cream/20 bg-white/10 px-3 py-2 text-base text-cream placeholder-cream/40 focus:border-agave focus:outline-none focus:ring-1 focus:ring-agave sm:text-sm"
               />
               <button
                 type="submit"
