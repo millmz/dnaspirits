@@ -175,9 +175,17 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
           } catch {
             // metering is a nicety — playback continues without it
           }
-          await audio.play();
-          return;
+          try {
+            await audio.play();
+            return;
+          } catch {
+            // autoplay blocked (common on phones) — release and use the browser voice
+            meterStop.current?.();
+          }
         }
+        // the server said no — say why instead of silently sounding different
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (j?.error) setError(`Her ElevenLabs voice is unavailable (${j.error}) — using the browser voice for now.`);
       } catch {
         // fall through to the browser voice
       }
@@ -277,6 +285,55 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     setError("");
   };
 
+  type CheckRow = { label: string; ok: boolean | null; note: string };
+  const [check, setCheck] = useState<CheckRow[] | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  /** One tap answers "why isn't the voice/mic working?" with specifics. */
+  const runCheck = async () => {
+    setChecking(true);
+    const rows: CheckRow[] = [];
+
+    const fp = (document as unknown as { featurePolicy?: { allowsFeature: (f: string) => boolean } }).featurePolicy;
+    const micAllowed = fp ? fp.allowsFeature("microphone") : undefined;
+    if (micAllowed === true) rows.push({ label: "Site allows the microphone", ok: true, note: "the latest update is deployed" });
+    else if (micAllowed === false)
+      rows.push({ label: "Site policy is blocking the microphone", ok: false, note: "the newest deploy hasn't landed — check Render → denada-ops → Events, then hard-refresh this page" });
+    else rows.push({ label: "Microphone site policy", ok: null, note: "this browser doesn't expose it — try the orb and see" });
+
+    rows.push(
+      getRecognizer()
+        ? { label: "Speech recognition is supported here", ok: true, note: "tap-to-talk is available" }
+        : { label: "Speech recognition isn't supported in this browser", ok: false, note: "use Chrome, Edge, or Safari — typing always works" }
+    );
+
+    try {
+      const st = (await navigator.permissions.query({ name: "microphone" as PermissionName })).state;
+      if (st === "granted") rows.push({ label: "Mic permission granted", ok: true, note: "you're set" });
+      else if (st === "denied")
+        rows.push({ label: "Mic permission is blocked in your browser", ok: false, note: "click the icon at the left of the address bar → set Microphone to Allow → refresh" });
+      else rows.push({ label: "Mic permission not asked yet", ok: null, note: "tap the orb and choose Allow when prompted" });
+    } catch {
+      rows.push({ label: "Mic permission", ok: null, note: "couldn't query it in this browser" });
+    }
+
+    try {
+      const r = (await (await fetch("/api/ask/speak", { headers: { "x-denada": "1" } })).json()) as {
+        configured?: boolean; working?: boolean; voice?: string; model?: string; hint?: string;
+      };
+      if (!r.configured) rows.push({ label: "ElevenLabs isn't configured on the server", ok: false, note: r.hint ?? "" });
+      else if (r.working) rows.push({ label: "Her ElevenLabs voice works end-to-end", ok: true, note: `voice ${r.voice} · ${r.model}` });
+      else rows.push({ label: "ElevenLabs is configured but failing", ok: false, note: r.hint ?? "" });
+    } catch {
+      rows.push({ label: "Voice service check", ok: false, note: "couldn't reach the server — are you online?" });
+    }
+
+    if (!voiceOn) rows.push({ label: "Voice replies are switched off", ok: null, note: "flip 🔊 on above to hear her" });
+
+    setCheck(rows);
+    setChecking(false);
+  };
+
   return (
     <div className="flex min-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-xl border border-agave/25 bg-ink shadow-xl">
       {/* top controls */}
@@ -290,7 +347,31 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
         <button onClick={newChat} className="rounded-full border border-cream/20 px-3 py-1 text-xs text-cream/50 hover:text-cream" title="Start a fresh conversation">
           + new conversation
         </button>
+        <button
+          onClick={check ? () => setCheck(null) : runCheck}
+          disabled={checking}
+          className="rounded-full border border-cream/20 px-3 py-1 text-xs text-cream/50 hover:text-cream disabled:opacity-50"
+          title="Check the voice and microphone setup"
+        >
+          {checking ? "checking…" : check ? "hide check" : "🩺 system check"}
+        </button>
       </div>
+
+      {check && (
+        <div className="mx-auto mt-2 w-full max-w-2xl space-y-1.5 rounded-md border border-cream/15 bg-white/5 px-4 py-3">
+          {check.map((row, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs leading-relaxed">
+              <span className={row.ok === true ? "text-agave" : row.ok === false ? "text-red-300" : "text-cream/40"}>
+                {row.ok === true ? "✓" : row.ok === false ? "✗" : "○"}
+              </span>
+              <span>
+                <span className="text-cream">{row.label}</span>
+                {row.note && <span className="text-cream/50"> — {row.note}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* the stage */}
       <div className="relative flex flex-col items-center overflow-hidden pb-1 pt-3">
