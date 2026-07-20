@@ -39,7 +39,7 @@ export default async function InventoryPage({
       <PageHeader
         label="Supply Chain"
         title="Finished Goods"
-        subtitle="Bottled stock you own — at the distillery in Mexico and, after transfer, at your U.S. warehouse. Computed from the full movement ledger."
+        subtitle="Bottled stock in Mexico and the U.S., tracked by movement."
       />
 
       {moved && <Callout tone="green">Transferred {num(Number(moved))} bottles between warehouses.</Callout>}

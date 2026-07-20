@@ -189,12 +189,10 @@ export default async function SettingsPage({
             </>
           ) : (
             <p className="text-sm leading-relaxed text-ink/85">
-              <span className="font-medium text-burnt">Off.</span> To get alerts (publish failures,
-              overdue invoices, low stock, legal deadlines) and a Monday digest by email: create a free
-              account at <span className="font-medium">resend.com</span>, then set{" "}
-              <span className="font-mono text-xs">RESEND_API_KEY</span> and{" "}
-              <span className="font-mono text-xs">ALERT_EMAIL_TO</span> (comma-separated recipients) in
-              Render.
+              <span className="font-medium text-burnt">Off.</span> Alert emails and the Monday digest
+              turn on once <span className="font-mono text-xs">RESEND_API_KEY</span> and{" "}
+              <span className="font-mono text-xs">ALERT_EMAIL_TO</span> are set in the server
+              configuration.
             </p>
           )}
         </Card>
@@ -220,10 +218,9 @@ export default async function SettingsPage({
             </Table>
           )}
           <p className="mt-2 text-xs text-slate/70">
-            Every password and 2FA attempt, kept for 90 days. A run of failures against an account
-            you don't recognize means someone is guessing at your door — the rate limiter slows
-            them down, but that's the cue to make sure 2FA is on. Your own password and 2FA
-            settings live under <span className="font-medium">My Security</span>.
+            Every sign-in attempt from the last 90 days. Repeated failures you don&apos;t recognize
+            are your cue to make sure everyone has 2FA on — manage yours under{" "}
+            <span className="font-medium">My Security</span>.
           </p>
         </Card>
 
@@ -264,10 +261,9 @@ export default async function SettingsPage({
               </>
             ) : (
               <>
-                <span className="font-medium text-burnt">Offsite backups: OFF.</span> The database, its
-                snapshots and all post media live on one disk — set the{" "}
-                <span className="font-mono">OFFSITE_S3_*</span> env vars in Render (any S3-compatible
-                bucket: Cloudflare R2, AWS S3, Backblaze) to copy them offsite nightly.
+                <span className="font-medium text-burnt">Offsite backups: off.</span> Everything lives on
+                a single disk right now — nightly offsite copies turn on once{" "}
+                <span className="font-mono">OFFSITE_S3_*</span> is set in the server configuration.
               </>
             )}
             {disk && (

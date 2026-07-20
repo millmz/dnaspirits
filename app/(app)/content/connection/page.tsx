@@ -22,7 +22,7 @@ export default async function ConnectionPage() {
       <PageHeader
         label="Marketing"
         title="Meta Connection Check"
-        subtitle="Tests the Instagram/Facebook connection safely — nothing visible is ever posted."
+        subtitle="A safe end-to-end check of your Instagram and Facebook connection."
       />
 
       <div className="mb-4 flex items-center gap-3">

@@ -82,7 +82,7 @@ export default async function ReportsPage() {
       <PageHeader
         label="Performance"
         title="Reports & KPIs"
-        subtitle="The whole business rolled up across every month of data you've uploaded — depletions, shipments, channel stock and financials accumulate here, month over month."
+        subtitle="The whole business, month over month."
       />
 
       <div className="-mt-2 mb-5">

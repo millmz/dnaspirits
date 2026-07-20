@@ -27,8 +27,24 @@ function getRecognizer(): SpeechRecognitionLike | null {
   const r = new Ctor();
   r.lang = "en-US";
   r.interimResults = true;
-  r.continuous = false;
+  // keep the mic open across natural pauses; we commit on our own silence timer
+  r.continuous = true;
   return r;
+}
+
+/** Strip anything that reads badly aloud and end on a sentence boundary. */
+function speakable(text: string): string {
+  let t = text
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{FE0F}]/gu, "")
+    .replace(/[*_#`~>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (t.length > 1400) {
+    const cut = t.slice(0, 1400);
+    const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+    t = stop > 600 ? cut.slice(0, stop + 1) : cut;
+  }
+  return t;
 }
 
 /** Terminal-style typeout for Nada's replies; renders instantly when animate is off. */
@@ -86,6 +102,9 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   const moodRef = useRef<Mood>("idle");
   moodRef.current = mood;
+  const voiceRef = useRef(false);
+  voiceRef.current = voiceOn;
+  const lastInputWasVoice = useRef(false);
 
   // live audio amplitude driving the orb — from her voice while speaking,
   // from the mic while listening; the orb self-animates when neither is live
@@ -165,20 +184,62 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
   }, [turns, mood]);
 
+  /** After she finishes a spoken reply to a spoken question, reopen the mic. */
+  const resumeListening = () => {
+    if (!lastInputWasVoice.current || !voiceRef.current) return;
+    if (document.visibilityState !== "visible") return;
+    setTimeout(() => {
+      if (moodRef.current === "idle") listen();
+    }, 450);
+  };
+
   const browserSpeak = (text: string) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    u.voice = voices.find((v) => v.lang.startsWith("en") && /Samantha|Google US|Natural/i.test(v.name)) ?? voices.find((v) => v.lang.startsWith("en")) ?? null;
-    u.rate = 1.02;
-    u.onstart = () => setMood("speaking");
-    u.onend = () => setMood("idle");
-    window.speechSynthesis.speak(u);
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    synth.cancel();
+    const say = () => {
+      const u = new SpeechSynthesisUtterance(text);
+      const voices = synth.getVoices();
+      u.voice =
+        voices.find((v) => v.lang.startsWith("en") && /Samantha|Google US|Natural/i.test(v.name)) ??
+        voices.find((v) => v.lang.startsWith("en")) ??
+        null;
+      u.rate = 1.02;
+      u.onstart = () => setMood("speaking");
+      u.onend = () => {
+        clearInterval(keepAlive);
+        setMood("idle");
+        resumeListening();
+      };
+      u.onerror = () => {
+        clearInterval(keepAlive);
+        setMood("idle");
+      };
+      // Chrome stalls long utterances after ~15s unless nudged
+      const keepAlive = setInterval(() => {
+        if (!synth.speaking) return clearInterval(keepAlive);
+        synth.pause();
+        synth.resume();
+      }, 10_000);
+      synth.speak(u);
+    };
+    if (synth.getVoices().length > 0) return say();
+    // voices load async on first use — wait once, with a fallback timer
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      synth.onvoiceschanged = null;
+      say();
+    };
+    synth.onvoiceschanged = go;
+    setTimeout(go, 700);
   };
 
   const speak = async (text: string) => {
     if (!voiceOn) return;
+    const say = speakable(text);
+    if (!say) return;
     audioRef.current?.pause();
     meterStop.current?.();
     if (elevenOn) {
@@ -187,17 +248,19 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
         const res = await fetch("/api/ask/speak", {
           method: "POST",
           headers: { "content-type": "application/json", "x-denada": "1" },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text: say }),
         });
         if (res.ok && res.headers.get("content-type")?.includes("audio")) {
           const url = URL.createObjectURL(await res.blob());
           const audio = new Audio(url);
+          audio.preload = "auto";
           audioRef.current = audio;
           audio.onplay = () => setMood("speaking");
           audio.onended = () => {
             setMood("idle");
             meterStop.current?.();
             URL.revokeObjectURL(url);
+            resumeListening();
           };
           audio.onerror = () => {
             setMood("idle");
@@ -208,12 +271,21 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
             // route her voice through an analyser so the orb rides the waveform
             const actx = audioContext();
             if (actx) {
+              await actx.resume().catch(() => undefined);
               const src = actx.createMediaElementSource(audio);
               const analyser = actx.createAnalyser();
               analyser.fftSize = 512;
               src.connect(analyser);
               analyser.connect(actx.destination);
-              startMeter(analyser);
+              // disconnect on stop so nodes don't pile up across replies
+              startMeter(analyser, () => {
+                try {
+                  src.disconnect();
+                  analyser.disconnect();
+                } catch {
+                  // already gone
+                }
+              });
             }
           } catch {
             // metering is a nicety — playback continues without it
@@ -228,12 +300,12 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
         }
         // the server said no — say why instead of silently sounding different
         const j = (await res.json().catch(() => null)) as { error?: string } | null;
-        if (j?.error) setError(`Her ElevenLabs voice is unavailable (${j.error}) — using the browser voice for now.`);
+        if (j?.error) setError(`Her voice is temporarily unavailable (${j.error}) — using the standard voice for now.`);
       } catch {
         // fall through to the browser voice
       }
     }
-    browserSpeak(text);
+    browserSpeak(say);
   };
 
   async function send(text: string) {
@@ -256,26 +328,47 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   }
 
   const listen = () => {
-    if (mood === "listening") {
+    if (moodRef.current === "listening") {
       recognizer.current?.stop();
       return;
     }
     const r = getRecognizer();
     if (!r) return;
+    // barge-in: tapping the core while she talks interrupts her and hands you the mic
+    audioRef.current?.pause();
+    window.speechSynthesis?.cancel();
+    meterStop.current?.();
     recognizer.current = r;
     let finalText = "";
+    let silence: ReturnType<typeof setTimeout> | undefined;
+    const armSilence = (ms: number) => {
+      clearTimeout(silence);
+      silence = setTimeout(() => r.stop(), ms);
+    };
     r.onresult = (e) => {
-      let text = "";
-      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
-      setInput(text);
-      if (e.results[e.results.length - 1]?.isFinal) finalText = text;
+      let all = "";
+      let finals = "";
+      for (let i = 0; i < e.results.length; i++) {
+        const seg = e.results[i][0].transcript;
+        all += seg;
+        if (e.results[i].isFinal) finals += seg;
+      }
+      setInput(all.trimStart());
+      finalText = (finals || all).trim();
+      // the mic stays open through natural pauses; a real stop in speech commits
+      armSilence(finalText ? 1700 : 2600);
     };
     r.onend = () => {
+      clearTimeout(silence);
       setMood("idle");
       meterStop.current?.();
-      if (finalText.trim()) send(finalText);
+      if (finalText.trim()) {
+        lastInputWasVoice.current = true;
+        send(finalText);
+      }
     };
     r.onerror = (e) => {
+      clearTimeout(silence);
       setMood("idle");
       meterStop.current?.();
       const code = e?.error ?? "";
@@ -293,6 +386,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     setError("");
     setMood("listening");
     r.start();
+    armSilence(8000); // said nothing at all — close the mic quietly
     // meter the mic so the orb reacts to the user's voice while she listens
     navigator.mediaDevices
       ?.getUserMedia({ audio: true })
@@ -449,7 +543,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
             }`}
           />
           {mood === "listening"
-            ? "listening — speak now"
+            ? "listening — pause when you're done"
             : mood === "thinking"
               ? "processing"
               : mood === "speaking"
@@ -505,6 +599,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          lastInputWasVoice.current = false;
           send(input);
         }}
         className="relative z-10 mx-auto w-full max-w-3xl px-6 pb-5 pt-3"

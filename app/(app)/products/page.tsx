@@ -21,7 +21,7 @@ export default async function ProductsPage() {
       <PageHeader
         label="Supply Chain · Mexico"
         title="Products & BOM"
-        subtitle="Your expressions and what goes into each one. COGS is derived live from the bill of materials; FOB pricing is stored separately so you can run pricing scenarios without touching production costs."
+        subtitle="Your expressions — builds, costs, and pricing."
       />
 
       <Card title="Catalog">

@@ -109,7 +109,7 @@ export default async function AccountingPage({
       <PageHeader
         label="Finance"
         title="Accounting"
-        subtitle="Operating numbers in real time. QuickBooks stays the ledger of record — your bookkeeper uploads the monthly P&L here so the books sit next to the operations."
+        subtitle="Live operating numbers alongside your monthly books."
       />
 
       {imported !== undefined && (
@@ -307,11 +307,8 @@ export default async function AccountingPage({
             <Card title="QuickBooks Online sync">
               {!qboEnabled ? (
                 <p className="text-xs leading-relaxed text-slate/80">
-                  Live sync is ready to activate: create an app at developer.intuit.com (Accounting scope),
-                  set its redirect URI to <span className="font-mono">/api/qbo/callback</span> on this
-                  domain, then add <span className="font-mono">QBO_CLIENT_ID</span> and{" "}
-                  <span className="font-mono">QBO_CLIENT_SECRET</span> env vars in Render. Until then, the
-                  file upload above does the same job.
+                  Live sync isn&apos;t connected — the monthly upload above does the same job. Activating it
+                  takes QuickBooks app credentials in the server configuration.
                 </p>
               ) : !qbo ? (
                 <div>

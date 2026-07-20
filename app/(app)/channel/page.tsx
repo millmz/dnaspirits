@@ -38,7 +38,7 @@ export default async function ChannelPage({
       <PageHeader
         label="Market · United States"
         title="Channel Inventory"
-        subtitle="Stock sitting with your importer and each distributor, from their reports. Weeks of supply is your restock clock: channel stock ÷ depletion velocity."
+        subtitle="Inventory in the field — importer and distributor stock, with weeks of supply."
       />
 
       {lsiPeriod && (

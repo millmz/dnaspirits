@@ -118,7 +118,7 @@ export default async function ContentPage({
       <PageHeader
         label="Marketing"
         title="Content Calendar"
-        subtitle="Upload captions and media, schedule them, and let the platform post to Instagram and Facebook automatically. The De Nada voice: warm, host-first, never flashy."
+        subtitle="Plan, schedule, and publish to Instagram and Facebook."
       />
 
       <div className="mb-4 flex items-center gap-3">
@@ -583,22 +583,13 @@ export default async function ContentPage({
                 </div>
               ) : (
                 <div className="space-y-2 text-xs leading-relaxed text-slate/80">
-                  <p>To auto-publish and pull analytics, set these env vars in Render:</p>
-                  <ul className="list-disc space-y-1 pl-4 font-mono">
-                    <li>META_ACCESS_TOKEN</li>
-                    <li>META_IG_USER_ID</li>
-                    <li>META_FB_PAGE_ID</li>
-                    <li>APP_URL</li>
-                  </ul>
                   <p>
-                    Get them from a Meta app (developers.facebook.com) connected to the De Nada Facebook Page and
-                    Instagram professional account: generate a long-lived Page access token with
-                    <span className="font-mono"> instagram_content_publish</span>,
-                    <span className="font-mono"> pages_manage_posts</span>,
-                    <span className="font-mono"> pages_read_engagement</span> and
-                    <span className="font-mono"> instagram_manage_insights</span>. Ask Claude to walk you through it
-                    step by step when you&apos;re ready.
+                    Publishing isn&apos;t connected yet. Once the De Nada Instagram and Facebook accounts are
+                    linked, scheduled posts publish themselves and analytics flow in automatically.
                   </p>
+                  <Link href="/content/connection" className="brand-heading inline-block text-xs text-agave hover:underline">
+                    Set up the connection →
+                  </Link>
                 </div>
               )}
             </Card>

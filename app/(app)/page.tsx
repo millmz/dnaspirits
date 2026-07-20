@@ -85,7 +85,7 @@ export default async function Dashboard() {
           </ul>
           {!emailEnabled() && (
             <p className="mt-2 text-xs text-slate/70">
-              Want these in your inbox? Set RESEND_API_KEY and ALERT_EMAIL_TO in Render — see Settings.
+              Want these in your inbox? Turn on email alerts in Settings.
             </p>
           )}
         </div>

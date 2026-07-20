@@ -28,7 +28,7 @@ export default async function PurchasingPage({
       <PageHeader
         label="Supply Chain · Mexico"
         title="Purchasing"
-        subtitle="Purchase orders to your Mexican suppliers. Receiving a PO adds the goods to dry-goods stock automatically."
+        subtitle="Purchase orders to your suppliers, from placed to received."
       />
 
       {err && (

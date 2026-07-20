@@ -56,7 +56,7 @@ export default async function DepletionsPage({
       <PageHeader
         label="Market · United States"
         title="Depletions"
-        subtitle="Cases sold through to retail, in 9-liter equivalents — the number that actually grows the brand. Upload your importer's monthly commercial report and everything below fills in."
+        subtitle="Cases sold through to retail — the number that grows the brand."
       />
 
       {sp.report && (

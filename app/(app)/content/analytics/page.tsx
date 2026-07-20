@@ -151,7 +151,7 @@ export default async function ContentAnalyticsPage({
       <PageHeader
         label="Marketing"
         title="Post Analytics"
-        subtitle="Views, reach and engagement for everything published to Instagram and Facebook — refreshed twice a day."
+        subtitle="Views, reach, and engagement across everything you publish."
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">

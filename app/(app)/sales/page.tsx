@@ -47,7 +47,7 @@ export default async function SalesPage({
       <PageHeader
         label="Market · United States"
         title="Ex-Works Sales"
-        subtitle="Sales to your importer at the distillery door. Confirming a sale hands off ownership — finished goods leave your books and the invoice becomes a receivable."
+        subtitle="Ex-works sales to your importer, invoiced at the distillery door."
       />
 
       {err && (

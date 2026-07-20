@@ -80,7 +80,7 @@ export default async function InboxPage({
       <PageHeader
         label="Automation"
         title="Review Inbox"
-        subtitle="Drop a document here and the agent parses it, checks it against your history, and stages it for one-click approval. Nothing touches your data until you approve."
+        subtitle="Drop in a document — review what it finds, approve in one click."
       />
 
       {staged && (

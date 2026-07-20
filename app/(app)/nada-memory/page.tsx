@@ -48,7 +48,7 @@ export default async function NadaMemoryPage({
       <PageHeader
         label="Admin"
         title="Nada's Memory"
-        subtitle="Everything Nada has learned — from you directly, or extracted after conversations. Each memory is a plain file on the data disk; edit or delete freely."
+        subtitle="Everything Nada has learned. Review, teach, or remove."
       />
 
       {ok && <div className="mb-4"><Callout tone="green">{ok}</Callout></div>}

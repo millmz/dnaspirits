@@ -20,7 +20,7 @@ export default async function PartnersPage() {
       <PageHeader
         label="Market · United States"
         title="Importer & Distributors"
-        subtitle="You sell ex-works to your importer; they sell to distributors in each market. This is the map of that channel."
+        subtitle="Your importer and distributor network, market by market."
       />
 
       <div className="space-y-6">

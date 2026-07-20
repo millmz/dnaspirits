@@ -56,7 +56,7 @@ export default async function ComponentsPage({
       <PageHeader
         label="Supply Chain · Mexico"
         title="Dry Goods"
-        subtitle="Every physical piece of the product — glass, labels, stoppers, capsules, shipper boxes, bulk tequila — with live on-hand counts and reorder flags."
+        subtitle="Glass, labels, closures, and bulk — live counts with reorder flags."
       />
 
       {err && (

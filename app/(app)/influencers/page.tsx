@@ -38,7 +38,7 @@ export default async function InfluencersPage() {
       <PageHeader
         label="Marketing"
         title="Influencers & PR"
-        subtitle="Product seeding, partnerships, and press — tracked as a pipeline from prospect to posted."
+        subtitle="Seeding, partnerships, and press — from prospect to posted."
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">

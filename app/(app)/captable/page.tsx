@@ -49,7 +49,7 @@ export default async function CapTablePage() {
       <PageHeader
         label="Company · DNA Spirits LLC"
         title="Cap Table"
-        subtitle="Membership units of DNA Spirits LLC (NY), per the A&R Operating Agreement. Visible to admins only — the operating agreement and unit certificates stay with counsel; this is the live ownership picture."
+        subtitle="Ownership of DNA Spirits LLC, at a glance."
       />
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">

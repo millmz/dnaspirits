@@ -31,7 +31,7 @@ export default async function PlanPage({
       <PageHeader
         label="Supply Chain · MX"
         title="Run Planner"
-        subtitle="Check dry-goods coverage for a production run before committing to it — and order the gaps in one click."
+        subtitle="Check coverage for a run — and order the gaps in one click."
       />
       <Link href="/production" className="brand-heading mb-4 inline-block text-sm text-agave hover:underline">
         ← Back to production

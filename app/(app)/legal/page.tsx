@@ -39,7 +39,7 @@ export default async function LegalPage() {
       <PageHeader
         label="Company · DNA Spirits LLC"
         title="Legal & IP"
-        subtitle="The register of what exists and when things are due — executed documents stay with counsel and in your drive; USPTO records are public. Admin-only."
+        subtitle="Documents, trademarks, permits, and deadlines."
       />
 
       {urgent.length > 0 && (

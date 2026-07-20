@@ -29,7 +29,7 @@ export default async function ProductionPage({
       <PageHeader
         label="Supply Chain · Mexico"
         title="Production"
-        subtitle="Each batch at the contract distillery, tracked by lot. Completing a run adds bottles to finished goods and consumes dry goods per the BOM."
+        subtitle="Batches at the distillery, tracked by lot."
       />
 
       <Link href="/production/plan" className="brand-heading mb-4 inline-block text-sm text-agave hover:underline">
