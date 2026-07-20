@@ -74,7 +74,7 @@ export function AgaveAvatar({ mood, size = 132 }: { mood: Mood; size?: number })
  * conversation flowing beneath. Sessions live server-side, so the thread
  * survives reloads, device switches, and restarts.
  */
-export function NadaStage() {
+export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [hydrated, setHydrated] = useState(false);
@@ -84,6 +84,7 @@ export function NadaStage() {
   const [micSupported, setMicSupported] = useState(false);
   const [error, setError] = useState("");
   const recognizer = useRef<SpeechRecognitionLike | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const moodRef = useRef<Mood>("idle");
   moodRef.current = mood;
@@ -101,15 +102,18 @@ export function NadaStage() {
       })
       .catch(() => undefined)
       .finally(() => setHydrated(true));
-    return () => window.speechSynthesis?.cancel();
+    return () => {
+      window.speechSynthesis?.cancel();
+      audioRef.current?.pause();
+    };
   }, []);
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
   }, [turns, mood]);
 
-  const speak = (text: string) => {
-    if (!voiceOn || !window.speechSynthesis) return;
+  const browserSpeak = (text: string) => {
+    if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
@@ -118,6 +122,40 @@ export function NadaStage() {
     u.onstart = () => setMood("speaking");
     u.onend = () => setMood("idle");
     window.speechSynthesis.speak(u);
+  };
+
+  const speak = async (text: string) => {
+    if (!voiceOn) return;
+    audioRef.current?.pause();
+    if (elevenOn) {
+      // her real voice — ElevenLabs via the server; browser voice is the net
+      try {
+        const res = await fetch("/api/ask/speak", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-denada": "1" },
+          body: JSON.stringify({ text }),
+        });
+        if (res.ok && res.headers.get("content-type")?.includes("audio")) {
+          const url = URL.createObjectURL(await res.blob());
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          audio.onplay = () => setMood("speaking");
+          audio.onended = () => {
+            setMood("idle");
+            URL.revokeObjectURL(url);
+          };
+          audio.onerror = () => {
+            setMood("idle");
+            URL.revokeObjectURL(url);
+          };
+          await audio.play();
+          return;
+        }
+      } catch {
+        // fall through to the browser voice
+      }
+    }
+    browserSpeak(text);
   };
 
   async function send(text: string) {
