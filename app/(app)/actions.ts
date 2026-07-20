@@ -10,3 +10,11 @@ export async function refreshNews() {
   await runNewsRefresh();
   revalidatePath("/");
 }
+
+/** Sweep the internet for De Nada mentions right now. */
+export async function refreshMentions() {
+  await requireOps();
+  const { runMentionScan } = await import("@/lib/mentions");
+  await runMentionScan();
+  revalidatePath("/");
+}

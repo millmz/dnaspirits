@@ -9,7 +9,8 @@ import { Card, Stat, Table, Td, Badge, TierBadge, EmptyState, PageHeader } from 
 import { computeAlerts } from "@/lib/alerts";
 import { emailEnabled } from "@/lib/email";
 import { getNewsBrief } from "@/lib/news";
-import { refreshNews } from "./actions";
+import { getRecentMentions, lastScan } from "@/lib/mentions";
+import { refreshNews, refreshMentions } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ export default async function Dashboard() {
 
   const alerts = await computeAlerts();
   const brief = await getNewsBrief();
+  const [mentions, scan] = await Promise.all([getRecentMentions(8), lastScan()]);
   const fgCases = stock.reduce((a, s) => a + Math.floor(s.totalBottles / s.bottlesPerCase), 0);
   const channelCases = position.reduce((a, p) => a + p.channelCases, 0);
   const receivables = unpaid.totalNetCents;
@@ -130,6 +132,49 @@ export default async function Dashboard() {
             </ul>
             <p className="mt-2 text-[10px] text-slate/50">Green dots = tequila/agave-specific. Links open the source.</p>
           </>
+        )}
+      </div>
+
+      <div className="mb-5 rounded-lg border border-ink/10 bg-white/70 p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="brand-heading text-xs font-medium tracking-widest text-agave-deep">
+            Brand watch · who&apos;s talking about De Nada
+          </div>
+          <div className="flex items-center gap-2">
+            {scan && (
+              <span className="text-[10px] text-slate/60">
+                scanned {scan.at.slice(0, 16).replace("T", " ")} UTC
+              </span>
+            )}
+            <form action={refreshMentions}>
+              <SubmitButton variant="secondary" className="!px-2.5 !py-1 !text-xs">Scan now</SubmitButton>
+            </form>
+          </div>
+        </div>
+        {mentions.length === 0 ? (
+          <p className="text-sm text-slate/70">
+            Nothing found yet. The platform sweeps news, Reddit, and Bluesky for De Nada mentions
+            once a day — anything new lands here.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {mentions.map((m) => (
+              <li key={m.id} className="text-sm">
+                <a href={m.url} target="_blank" rel="noreferrer" className="group inline-flex items-start gap-2 hover:underline">
+                  <Badge tone={m.source === "REDDIT" ? "amber" : m.source === "NEWS" ? "green" : "blue"}>
+                    {m.source === "REDDIT" ? "reddit" : m.source === "NEWS" ? "press" : "bluesky"}
+                  </Badge>
+                  <span>
+                    {m.title}
+                    <span className="ml-1.5 text-[10px] text-slate/60">
+                      {m.author}
+                      {m.publishedAt ? ` · ${m.publishedAt.toISOString().slice(0, 10)}` : ""}
+                    </span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

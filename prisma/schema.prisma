@@ -560,3 +560,15 @@ model FinancialEntry {
   amountCents Int
   createdAt   DateTime @default(now())
 }
+
+/// A place on the internet where De Nada Tequila was mentioned.
+model Mention {
+  id          String    @id @default(cuid())
+  url         String    @unique
+  source      String // NEWS | REDDIT | BLUESKY
+  title       String    @default("")
+  snippet     String    @default("")
+  author      String    @default("")
+  publishedAt DateTime?
+  foundAt     DateTime  @default(now())
+}

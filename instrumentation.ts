@@ -105,6 +105,13 @@ export async function register() {
   setTimeout(newsTick, 4 * 60 * 1000).unref?.();
   setInterval(newsTick, 60 * 60 * 1000).unref?.();
 
+  // Brand watch: hourly staleness check, scans the internet for De Nada
+  // mentions once a day (Google News, Reddit, Bluesky — all free sources).
+  const { mentionsWorkerTick } = await import("./lib/mentions");
+  const mentionsTick = () => mentionsWorkerTick().catch((e) => console.error("brand watch: scan failed:", e));
+  setTimeout(mentionsTick, 6 * 60 * 1000).unref?.();
+  setInterval(mentionsTick, 60 * 60 * 1000).unref?.();
+
   // Nada's long-term memory extractor: quiet sessions get distilled into
   // durable memories (deduped, secrets-free) — no-ops without the AI key.
   const { runNadaExtractor } = await import("./lib/ask");
