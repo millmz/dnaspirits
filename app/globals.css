@@ -109,3 +109,19 @@ body {
   0% { transform: scale(0.75); opacity: 0.7; }
   100% { transform: scale(1.15); opacity: 0; }
 }
+
+/* Nada page: the big orb levitates */
+.nada-float {
+  animation: nada-hover 6s ease-in-out infinite;
+}
+@keyframes nada-hover {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+.nada-shadow {
+  animation: nada-shadow 6s ease-in-out infinite;
+}
+@keyframes nada-shadow {
+  0%, 100% { transform: scaleX(1); opacity: 0.35; }
+  50% { transform: scaleX(0.82); opacity: 0.2; }
+}

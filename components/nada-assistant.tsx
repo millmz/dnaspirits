@@ -70,12 +70,11 @@ export function AgaveAvatar({ mood, size = 132 }: { mood: Mood; size?: number })
 }
 
 /**
- * Nada as an orb: docked on every page, expands into a side panel (full-screen
- * on phones). The conversation lives server-side per session, so it follows
- * you across pages, reloads, devices, and restarts.
+ * Nada's stage: her own page. A large levitating orb you talk to, with the
+ * conversation flowing beneath. Sessions live server-side, so the thread
+ * survives reloads, device switches, and restarts.
  */
-export function NadaOrb() {
-  const [open, setOpen] = useState(false);
+export function NadaStage() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [hydrated, setHydrated] = useState(false);
@@ -92,7 +91,6 @@ export function NadaOrb() {
   useEffect(() => {
     setMicSupported(!!getRecognizer());
     setVoiceOn(localStorage.getItem("nada-voice") === "on");
-    // resume the latest conversation so a reload keeps the thread
     fetch("/api/ask", { headers: { "x-denada": "1" } })
       .then((r) => r.json())
       .then((r) => {
@@ -108,7 +106,7 @@ export function NadaOrb() {
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
-  }, [turns, mood, open]);
+  }, [turns, mood]);
 
   const speak = (text: string) => {
     if (!voiceOn || !window.speechSynthesis) return;
@@ -182,108 +180,101 @@ export function NadaOrb() {
   };
 
   return (
-    <>
-      {/* the orb — above the content-page FAB on mobile */}
-      {!open && (
+    <div className="flex min-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-xl border border-agave/25 bg-ink shadow-xl">
+      {/* top controls */}
+      <div className="flex items-center justify-end gap-2 px-4 pt-3">
         <button
-          onClick={() => setOpen(true)}
-          aria-label="Talk to Nada"
-          className="fixed bottom-24 right-4 z-40 rounded-full opacity-80 shadow-lg transition-all hover:scale-110 hover:opacity-100 active:scale-95 lg:bottom-5 lg:right-5 print:hidden"
+          onClick={toggleVoice}
+          className={`rounded-full border px-3 py-1 text-xs ${voiceOn ? "border-agave bg-agave/20 text-cream" : "border-cream/20 text-cream/50 hover:text-cream"}`}
         >
-          <AgaveAvatar mood="idle" size={42} />
+          {voiceOn ? "🔊 voice replies on" : "🔇 voice replies off"}
         </button>
-      )}
+        <button onClick={newChat} className="rounded-full border border-cream/20 px-3 py-1 text-xs text-cream/50 hover:text-cream" title="Start a fresh conversation">
+          + new conversation
+        </button>
+      </div>
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-ink/30 print:hidden" onClick={() => setOpen(false)}>
-          <div
-            className="flex h-full w-full flex-col bg-ink shadow-2xl sm:w-[26rem] sm:border-l sm:border-agave/25"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
-              <AgaveAvatar mood={mood} size={52} />
-              <div className="flex-1">
-                <div className="brand-heading text-sm tracking-widest text-cream">NADA</div>
-                <div className="text-[10px] text-cream/50">
-                  {mood === "listening" ? "listening…" : mood === "thinking" ? "checking the numbers…" : mood === "speaking" ? "speaking" : "your ops copilot"}
-                </div>
-              </div>
-              <button onClick={toggleVoice} className={`rounded-full border px-2 py-0.5 text-[10px] ${voiceOn ? "border-agave bg-agave/20 text-cream" : "border-cream/20 text-cream/50 hover:text-cream"}`}>
-                {voiceOn ? "🔊 voice" : "🔇 voice"}
-              </button>
-              <button onClick={newChat} className="rounded-full border border-cream/20 px-2 py-0.5 text-[10px] text-cream/50 hover:text-cream" title="Start a fresh conversation">
-                + new
-              </button>
-              <button onClick={() => setOpen(false)} aria-label="Close Nada" className="px-1 text-cream/60 hover:text-cream">
-                ✕
-              </button>
-            </div>
-
-            <div ref={scroller} className="flex-1 space-y-2 overflow-y-auto p-4">
-              {hydrated && turns.length === 0 && (
-                <div className="rounded-md bg-white/5 px-3 py-2 text-sm leading-relaxed text-cream/80">
-                  Ask me anything about the business — depletions, invoices, stock, what to post next.
-                  I remember our conversations, and you can teach me things: just say &ldquo;remember this.&rdquo;
-                </div>
-              )}
-              {turns.map((t, i) => (
-                <div key={i} className={`flex ${t.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed ${t.role === "user" ? "bg-agave text-cream" : "bg-cream text-ink"}`}>
-                    {t.content}
-                  </div>
-                </div>
-              ))}
-              {mood === "thinking" && (
-                <div className="flex justify-start">
-                  <div className="rounded-lg bg-cream/90 px-3 py-2 text-sm text-slate">
-                    <span className="inline-flex gap-1">
-                      <span className="animate-bounce">·</span>
-                      <span className="animate-bounce [animation-delay:0.15s]">·</span>
-                      <span className="animate-bounce [animation-delay:0.3s]">·</span>
-                    </span>
-                  </div>
-                </div>
-              )}
-              {error && <p className="text-xs text-red-300">{error}</p>}
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                send(input);
-              }}
-              className="flex items-center gap-2 border-t border-white/10 p-3"
-            >
-              {micSupported && (
-                <button
-                  type="button"
-                  onClick={listen}
-                  aria-label={mood === "listening" ? "Stop listening" : "Talk to Nada"}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${mood === "listening" ? "bg-burnt text-cream" : "bg-agave text-cream hover:bg-agave-deep"}`}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" />
-                    <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11h-2z" />
-                  </svg>
-                </button>
-              )}
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={mood === "listening" ? "Listening…" : "Ask Nada anything…"}
-                className="w-full rounded-md border border-cream/20 bg-white/10 px-3 py-2 text-base text-cream placeholder-cream/40 focus:border-agave focus:outline-none focus:ring-1 focus:ring-agave sm:text-sm"
-              />
-              <button
-                type="submit"
-                disabled={mood === "thinking"}
-                className="brand-heading shrink-0 rounded-md bg-agave px-4 py-2 text-sm font-medium text-cream hover:bg-agave-deep disabled:opacity-50"
-              >
-                Ask
-              </button>
-            </form>
-          </div>
+      {/* the orb */}
+      <div className="flex flex-col items-center pt-2">
+        <button
+          onClick={micSupported ? listen : undefined}
+          aria-label={micSupported ? (mood === "listening" ? "Stop listening" : "Talk to Nada") : "Nada"}
+          className={`nada-float rounded-full ${micSupported ? "cursor-pointer transition-transform hover:scale-[1.03] active:scale-95" : "cursor-default"}`}
+          title={micSupported ? "Tap to talk" : undefined}
+        >
+          <AgaveAvatar mood={mood} size={210} />
+        </button>
+        <div className="nada-shadow -mt-2 h-3 w-32 rounded-[50%] bg-ink shadow-[0_0_24px_10px_rgba(1,135,105,0.25)]" />
+        <div className="brand-heading mt-3 text-lg tracking-[0.3em] text-cream">NADA</div>
+        <div className="mt-0.5 text-xs text-cream/50">
+          {mood === "listening" ? "listening — speak now" : mood === "thinking" ? "checking the numbers…" : mood === "speaking" ? "speaking" : micSupported ? "tap the orb to talk, or type below" : "type below"}
         </div>
-      )}
-    </>
+      </div>
+
+      {/* conversation */}
+      <div ref={scroller} className="mx-auto mt-4 w-full max-w-2xl flex-1 space-y-2 overflow-y-auto px-4 pb-2">
+        {hydrated && turns.length === 0 && (
+          <div className="rounded-md bg-white/5 px-4 py-3 text-sm leading-relaxed text-cream/80">
+            Ask me anything about the business — depletions, invoices, stock, what to post next.
+            I remember our conversations, and you can teach me things: just say &ldquo;remember this.&rdquo;
+          </div>
+        )}
+        {turns.map((t, i) => (
+          <div key={i} className={`flex ${t.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed ${t.role === "user" ? "bg-agave text-cream" : "bg-cream text-ink"}`}>
+              {t.content}
+            </div>
+          </div>
+        ))}
+        {mood === "thinking" && (
+          <div className="flex justify-start">
+            <div className="rounded-lg bg-cream/90 px-3 py-2 text-sm text-slate">
+              <span className="inline-flex gap-1">
+                <span className="animate-bounce">·</span>
+                <span className="animate-bounce [animation-delay:0.15s]">·</span>
+                <span className="animate-bounce [animation-delay:0.3s]">·</span>
+              </span>
+            </div>
+          </div>
+        )}
+        {error && <p className="text-xs text-red-300">{error}</p>}
+      </div>
+
+      {/* input */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          send(input);
+        }}
+        className="mx-auto flex w-full max-w-2xl items-center gap-2 px-4 pb-4 pt-2"
+      >
+        {micSupported && (
+          <button
+            type="button"
+            onClick={listen}
+            aria-label={mood === "listening" ? "Stop listening" : "Talk to Nada"}
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors ${mood === "listening" ? "bg-burnt text-cream" : "bg-agave text-cream hover:bg-agave-deep"}`}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" />
+              <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11h-2z" />
+            </svg>
+          </button>
+        )}
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={mood === "listening" ? "Listening…" : "Ask Nada anything…"}
+          className="w-full rounded-md border border-cream/20 bg-white/10 px-3 py-2.5 text-base text-cream placeholder-cream/40 focus:border-agave focus:outline-none focus:ring-1 focus:ring-agave sm:text-sm"
+        />
+        <button
+          type="submit"
+          disabled={mood === "thinking"}
+          className="brand-heading shrink-0 rounded-md bg-agave px-5 py-2.5 text-sm font-medium text-cream hover:bg-agave-deep disabled:opacity-50"
+        >
+          Ask
+        </button>
+      </form>
+    </div>
   );
 }
