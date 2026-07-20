@@ -97,6 +97,17 @@ export async function saveNadaIdentity(formData: FormData) {
   redirect("/settings?nada=saved");
 }
 
+/** Pick Nada's spoken voice — any ElevenLabs voice ID; blank returns to the default. */
+export async function saveNadaVoice(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("voice") ?? "").trim();
+  const { redirect } = await import("next/navigation");
+  if (id && !/^[A-Za-z0-9]{8,48}$/.test(id)) redirect("/settings?nada=badvoice");
+  const { setSetting } = await import("@/lib/settings");
+  await setSetting("nada-voice-id", id);
+  redirect("/settings?nada=voice");
+}
+
 export async function sendTestAlertEmail() {
   await requireAdmin();
   const { sendTestDigest } = await import("@/lib/alerts");

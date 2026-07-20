@@ -8,15 +8,25 @@
  * browser's built-in synthesizer.
  */
 
+import { getSetting } from "./settings";
+
 const DEFAULT_VOICE = "6fZce9LFNG3iEITDfqZZ";
 
 export function elevenEnabled(): boolean {
   return Boolean(process.env.ELEVENLABS_API_KEY);
 }
 
+/** The voice in use: Settings pick first, then env override, then the default. */
+export async function currentVoice(): Promise<{ id: string; source: "settings" | "server" | "default" }> {
+  const chosen = (await getSetting("nada-voice-id").catch(() => "")).trim();
+  if (chosen) return { id: chosen, source: "settings" };
+  if (process.env.ELEVENLABS_VOICE_ID) return { id: process.env.ELEVENLABS_VOICE_ID, source: "server" };
+  return { id: DEFAULT_VOICE, source: "default" };
+}
+
 export async function synthesize(text: string): Promise<Response> {
   const base = process.env.ELEVENLABS_API_URL || "https://api.elevenlabs.io";
-  const voice = process.env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE;
+  const voice = (await currentVoice()).id;
   return fetch(`${base}/v1/text-to-speech/${encodeURIComponent(voice)}`, {
     method: "POST",
     headers: {

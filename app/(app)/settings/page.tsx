@@ -6,7 +6,8 @@ import { offsiteConfigured, lastOffsiteStatus, diskUsage } from "@/lib/offsite";
 import { PageHeader, Card, Table, Td, Badge, Field, inputCls, btnCls, EmptyState } from "@/components/ui";
 import { emailEnabled, emailRecipients } from "@/lib/email";
 import { readIdentity, readKnowledge } from "@/lib/nada";
-import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow, sendTestAlertEmail, saveNadaIdentity, saveNadaKnowledge } from "./actions";
+import { currentVoice } from "@/lib/tts";
+import { createUser, deleteUser, resetUserPassword, resetUser2fa, forceSignOut, createWarehouse, backupNow, sendTestAlertEmail, saveNadaIdentity, saveNadaKnowledge, saveNadaVoice } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
 
 export default async function SettingsPage({
@@ -25,6 +26,7 @@ export default async function SettingsPage({
   const offsiteOn = offsiteConfigured();
   const offsite = lastOffsiteStatus();
   const disk = diskUsage();
+  const voiceChoice = await currentVoice();
 
   return (
     <div>
@@ -137,6 +139,17 @@ export default async function SettingsPage({
               Saved — Nada&apos;s very next reply uses the new personality. No restart needed.
             </div>
           )}
+          {nada === "voice" && (
+            <div className="mb-3 rounded-md bg-agave/10 px-3 py-2 text-sm text-agave-deep">
+              Voice updated — her very next spoken reply uses it.
+            </div>
+          )}
+          {nada === "badvoice" && (
+            <div className="mb-3 rounded-md bg-burnt/10 px-3 py-2 text-sm text-burnt">
+              That doesn&apos;t look like a voice ID — copy it from the voice&apos;s page in the
+              ElevenLabs library.
+            </div>
+          )}
           <form action={saveNadaIdentity} className="space-y-3">
             <textarea
               name="identity"
@@ -166,6 +179,31 @@ export default async function SettingsPage({
               The stable story the live data can&apos;t tell — founders, business model, brand. Nada
               carries every line into every conversation. Her learned memories live under{" "}
               <span className="font-medium">Nada&apos;s Memory</span> in the sidebar.
+            </p>
+          </div>
+          <div className="mt-4 border-t border-ink/10 pt-4">
+            <div className="brand-heading mb-2 text-xs text-agave-deep">Her voice</div>
+            <form action={saveNadaVoice} className="flex flex-wrap items-center gap-2">
+              <input
+                name="voice"
+                defaultValue={voiceChoice.source === "settings" ? voiceChoice.id : ""}
+                placeholder={`${voiceChoice.id} (current)`}
+                className={`${inputCls} max-w-xs font-mono text-xs`}
+              />
+              <SubmitButton>Save voice</SubmitButton>
+            </form>
+            <p className="mt-2 text-xs text-slate/70">
+              Paste a voice ID from the{" "}
+              <a
+                href="https://elevenlabs.io/app/voice-library"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-agave-deep hover:underline"
+              >
+                ElevenLabs voice library
+              </a>{" "}
+              (it&apos;s in the voice&apos;s share link or details panel). Takes effect on her next
+              spoken reply — leave blank to return to the default voice.
             </p>
           </div>
         </Card>

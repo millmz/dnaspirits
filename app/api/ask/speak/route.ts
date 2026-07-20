@@ -1,5 +1,5 @@
 import { apiOpsUser } from "@/lib/api-auth";
-import { elevenEnabled, synthesize } from "@/lib/tts";
+import { currentVoice, elevenEnabled, synthesize } from "@/lib/tts";
 
 function explainStatus(status: number): string {
   if (status === 401) return "the API key is invalid or was revoked";
@@ -20,7 +20,8 @@ export async function GET(req: Request) {
       hint: "ELEVENLABS_API_KEY is not set on the server. Add it in Render → denada-ops → Environment.",
     });
   }
-  const voice = process.env.ELEVENLABS_VOICE_ID || "default (Adam's pick)";
+  const v = await currentVoice();
+  const voice = v.source === "settings" ? `${v.id} (picked in Settings)` : v.source === "server" ? v.id : "default";
   const model = process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2";
   try {
     const r = await synthesize("ok");
