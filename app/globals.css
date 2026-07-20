@@ -71,6 +71,21 @@ body {
 .nada-hud-frame::after { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
 .nada-hud-frame-alt { transform: scaleX(-1); }
 
+/* console log: fade the oldest lines into the dark */
+.nada-log {
+  mask-image: linear-gradient(to bottom, transparent, black 26px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(243, 248, 228, 0.15) transparent;
+}
+.nada-caret {
+  animation: nada-caret-blink 1s steps(1) infinite;
+  color: rgba(1, 135, 105, 0.9);
+}
+@keyframes nada-caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 /* Nada page: the big orb levitates */
 .nada-float {
   animation: nada-hover 6s ease-in-out infinite;

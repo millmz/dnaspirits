@@ -30,6 +30,40 @@ function getRecognizer(): SpeechRecognitionLike | null {
   return r;
 }
 
+/** Terminal-style typeout for Nada's replies; renders instantly when animate is off. */
+function TypedText({ text, animate, onTick }: { text: string; animate: boolean; onTick?: () => void }) {
+  const [n, setN] = useState(animate ? 0 : text.length);
+  const tickRef = useRef(onTick);
+  tickRef.current = onTick;
+  useEffect(() => {
+    if (!animate) {
+      setN(text.length);
+      return;
+    }
+    setN(0);
+    // long answers land in ~3s instead of scrolling forever
+    const step = Math.max(1, Math.round(text.length / 180));
+    const id = setInterval(() => {
+      setN((v) => {
+        const next = v + step;
+        if (next >= text.length) {
+          clearInterval(id);
+          return text.length;
+        }
+        tickRef.current?.();
+        return next;
+      });
+    }, 16);
+    return () => clearInterval(id);
+  }, [text, animate]);
+  return (
+    <>
+      {text.slice(0, n)}
+      {n < text.length && <span className="nada-caret">▍</span>}
+    </>
+  );
+}
+
 /**
  * Nada's stage: her own page. A large levitating orb you talk to, with the
  * conversation flowing beneath. Sessions live server-side, so the thread
@@ -44,6 +78,8 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   const [voiceOn, setVoiceOn] = useState(false);
   const [micSupported, setMicSupported] = useState(false);
   const [error, setError] = useState("");
+  const [orbSize, setOrbSize] = useState(320);
+  const hydratedCount = useRef(0); // turns loaded from the server render instantly; only new replies type out
   const recognizer = useRef<SpeechRecognitionLike | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -104,12 +140,17 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
       .then((r) => {
         if (r.ok && r.session) {
           setSessionId(r.session.id);
+          hydratedCount.current = r.session.turns.length;
           setTurns(r.session.turns);
         }
       })
       .catch(() => undefined)
       .finally(() => setHydrated(true));
+    const sizeOrb = () => setOrbSize(Math.max(220, Math.min(340, Math.floor(window.innerWidth * 0.55))));
+    sizeOrb();
+    window.addEventListener("resize", sizeOrb);
     return () => {
+      window.removeEventListener("resize", sizeOrb);
       window.speechSynthesis?.cancel();
       audioRef.current?.pause();
       meterStop.current?.();
@@ -281,6 +322,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
 
   const newChat = () => {
     setSessionId(undefined);
+    hydratedCount.current = 0;
     setTurns([]);
     setError("");
   };
@@ -334,31 +376,34 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     setChecking(false);
   };
 
+  const scrollLog = () => scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
+
   return (
-    <div className="flex min-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-xl border border-agave/25 bg-ink shadow-xl">
-      {/* top controls */}
-      <div className="flex items-center justify-end gap-2 px-4 pt-3">
-        <button
-          onClick={toggleVoice}
-          className={`rounded-full border px-3 py-1 text-xs ${voiceOn ? "border-agave bg-agave/20 text-cream" : "border-cream/20 text-cream/50 hover:text-cream"}`}
-        >
-          {voiceOn ? "🔊 voice replies on" : "🔇 voice replies off"}
+    <div className="relative flex min-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-xl border border-agave/25 bg-ink shadow-xl">
+      <div className="nada-stage-bg pointer-events-none absolute inset-0" aria-hidden />
+      <div className="nada-hud-frame pointer-events-none absolute inset-3" aria-hidden />
+      <div className="nada-hud-frame nada-hud-frame-alt pointer-events-none absolute inset-3" aria-hidden />
+
+      {/* quiet console controls */}
+      <div className="relative z-10 flex items-center justify-end gap-4 px-5 pt-4 font-mono text-[11px] lowercase tracking-wide">
+        <button onClick={toggleVoice} className={voiceOn ? "text-agave hover:text-cream" : "text-cream/40 hover:text-cream"}>
+          [ voice replies {voiceOn ? "on" : "off"} ]
         </button>
-        <button onClick={newChat} className="rounded-full border border-cream/20 px-3 py-1 text-xs text-cream/50 hover:text-cream" title="Start a fresh conversation">
-          + new conversation
+        <button onClick={newChat} className="text-cream/40 hover:text-cream" title="Start a fresh conversation">
+          [ + new conversation ]
         </button>
         <button
           onClick={check ? () => setCheck(null) : runCheck}
           disabled={checking}
-          className="rounded-full border border-cream/20 px-3 py-1 text-xs text-cream/50 hover:text-cream disabled:opacity-50"
+          className="text-cream/40 hover:text-cream disabled:opacity-50"
           title="Check the voice and microphone setup"
         >
-          {checking ? "checking…" : check ? "hide check" : "🩺 system check"}
+          [ {checking ? "checking…" : check ? "hide check" : "system check"} ]
         </button>
       </div>
 
       {check && (
-        <div className="mx-auto mt-2 w-full max-w-2xl space-y-1.5 rounded-md border border-cream/15 bg-white/5 px-4 py-3">
+        <div className="relative z-10 mx-auto mt-2 w-full max-w-2xl space-y-1.5 rounded-md border border-cream/15 bg-ink/80 px-4 py-3 font-mono">
           {check.map((row, i) => (
             <div key={i} className="flex items-start gap-2 text-xs leading-relaxed">
               <span className={row.ok === true ? "text-agave" : row.ok === false ? "text-red-300" : "text-cream/40"}>
@@ -373,22 +418,18 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
         </div>
       )}
 
-      {/* the stage */}
-      <div className="relative flex flex-col items-center overflow-hidden pb-1 pt-3">
-        <div className="nada-stage-bg pointer-events-none absolute inset-0" aria-hidden />
-        <div className="nada-hud-frame pointer-events-none absolute inset-3" aria-hidden />
-        <div className="nada-hud-frame nada-hud-frame-alt pointer-events-none absolute inset-3" aria-hidden />
+      {/* her — the center of the room */}
+      <div className="relative z-10 flex flex-1 flex-col items-center justify-center py-2">
         <button
           onClick={micSupported ? listen : undefined}
           aria-label={micSupported ? (mood === "listening" ? "Stop listening" : "Talk to Nada") : "Nada"}
           className={`nada-float relative rounded-full ${micSupported ? "cursor-pointer transition-transform hover:scale-[1.02] active:scale-95" : "cursor-default"}`}
           title={micSupported ? "Tap to talk" : undefined}
         >
-          <NadaOrb mood={mood} size={280} level={levelRef} />
+          <NadaOrb mood={mood} size={orbSize} level={levelRef} />
         </button>
-        <div className="nada-shadow -mt-3 h-3 w-36 rounded-[50%] bg-ink shadow-[0_0_28px_12px_rgba(1,135,105,0.3)]" />
-        <div className="brand-heading relative mt-3 text-lg tracking-[0.35em] text-cream">NADA</div>
-        <div className="relative mt-1.5 flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-cream/55">
+        <div className="nada-shadow -mt-4 h-3 w-40 rounded-[50%] bg-ink shadow-[0_0_32px_14px_rgba(1,135,105,0.3)]" />
+        <div className="relative mt-3 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.3em] text-cream/55">
           <span
             className={`inline-block h-1.5 w-1.5 rounded-full ${
               mood === "listening"
@@ -407,74 +448,90 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
               : mood === "speaking"
                 ? "speaking"
                 : micSupported
-                  ? "online — tap the core to talk"
-                  : "online — type below"}
+                  ? "nada · online — tap the core to talk"
+                  : "nada · online — type below"}
         </div>
       </div>
 
-      {/* conversation */}
-      <div ref={scroller} className="mx-auto mt-4 w-full max-w-2xl flex-1 space-y-2 overflow-y-auto px-4 pb-2">
+      {/* the console: her words, secondary to her presence */}
+      <div ref={scroller} className="nada-log relative z-10 mx-auto max-h-[30vh] w-full max-w-3xl space-y-2 overflow-y-auto px-6 font-mono text-[13px] leading-relaxed">
         {hydrated && turns.length === 0 && (
-          <div className="rounded-md bg-white/5 px-4 py-3 text-sm leading-relaxed text-cream/80">
-            Ask me anything about the business — depletions, invoices, stock, what to post next.
-            I remember our conversations, and you can teach me things: just say &ldquo;remember this.&rdquo;
+          <div className="whitespace-pre-wrap">
+            <span className="mr-2 text-agave">nada ❯</span>
+            <span className="text-cream/70">
+              online. i know the live numbers — depletions, invoices, stock, what to post next. teach me things: just say &ldquo;remember this.&rdquo;
+            </span>
           </div>
         )}
-        {turns.map((t, i) => (
-          <div key={i} className={`flex ${t.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed ${t.role === "user" ? "bg-agave text-cream" : "bg-cream text-ink"}`}>
-              {t.content}
+        {turns.map((t, i) =>
+          t.role === "user" ? (
+            <div key={i} className="whitespace-pre-wrap">
+              <span className="mr-2 text-blanco/80">you&nbsp;&nbsp;❯</span>
+              <span className="text-cream/60">{t.content}</span>
             </div>
-          </div>
-        ))}
-        {mood === "thinking" && (
-          <div className="flex justify-start">
-            <div className="rounded-lg bg-cream/90 px-3 py-2 text-sm text-slate">
-              <span className="inline-flex gap-1">
-                <span className="animate-bounce">·</span>
-                <span className="animate-bounce [animation-delay:0.15s]">·</span>
-                <span className="animate-bounce [animation-delay:0.3s]">·</span>
+          ) : (
+            <div key={i} className="whitespace-pre-wrap">
+              <span className="mr-2 text-agave">nada ❯</span>
+              <span className="text-cream/90">
+                <TypedText text={t.content} animate={i >= hydratedCount.current} onTick={scrollLog} />
               </span>
             </div>
+          )
+        )}
+        {mood === "thinking" && (
+          <div>
+            <span className="mr-2 text-agave">nada ❯</span>
+            <span className="text-cream/50">
+              <span className="nada-caret">▍</span>
+            </span>
           </div>
         )}
-        {error && <p className="text-xs text-red-300">{error}</p>}
+        {error && (
+          <div>
+            <span className="mr-2 text-red-300">sys&nbsp;&nbsp;✗</span>
+            <span className="text-red-300/90">{error}</span>
+          </div>
+        )}
       </div>
 
-      {/* input */}
+      {/* command line */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           send(input);
         }}
-        className="mx-auto flex w-full max-w-2xl items-center gap-2 px-4 pb-4 pt-2"
+        className="relative z-10 mx-auto w-full max-w-3xl px-6 pb-5 pt-3"
       >
-        {micSupported && (
+        <div className="flex items-center gap-3 border-t border-cream/10 pt-3 font-mono">
+          {micSupported && (
+            <button
+              type="button"
+              onClick={listen}
+              aria-label={mood === "listening" ? "Stop listening" : "Talk to Nada"}
+              className={`shrink-0 transition-colors ${mood === "listening" ? "animate-pulse text-burnt" : "text-cream/40 hover:text-agave"}`}
+              title="Talk instead of typing"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" />
+                <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11h-2z" />
+              </svg>
+            </button>
+          )}
+          <span className="shrink-0 text-agave">❯</span>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={mood === "listening" ? "listening…" : "ask nada anything"}
+            className="w-full border-none bg-transparent text-base text-cream caret-agave placeholder:text-cream/30 focus:outline-none sm:text-sm"
+          />
           <button
-            type="button"
-            onClick={listen}
-            aria-label={mood === "listening" ? "Stop listening" : "Talk to Nada"}
-            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors ${mood === "listening" ? "bg-burnt text-cream" : "bg-agave text-cream hover:bg-agave-deep"}`}
+            type="submit"
+            disabled={mood === "thinking"}
+            className="shrink-0 text-xs lowercase text-cream/40 hover:text-agave disabled:opacity-40"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" />
-              <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11h-2z" />
-            </svg>
+            [ send ⏎ ]
           </button>
-        )}
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={mood === "listening" ? "Listening…" : "Ask Nada anything…"}
-          className="w-full rounded-md border border-cream/20 bg-white/10 px-3 py-2.5 text-base text-cream placeholder-cream/40 focus:border-agave focus:outline-none focus:ring-1 focus:ring-agave sm:text-sm"
-        />
-        <button
-          type="submit"
-          disabled={mood === "thinking"}
-          className="brand-heading shrink-0 rounded-md bg-agave px-5 py-2.5 text-sm font-medium text-cream hover:bg-agave-deep disabled:opacity-50"
-        >
-          Ask
-        </button>
+        </div>
       </form>
     </div>
   );
