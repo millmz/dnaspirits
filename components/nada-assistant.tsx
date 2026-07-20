@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { postJson } from "@/lib/upload-client";
+import { NadaOrb, type OrbLevel } from "@/components/nada-orb";
 
 type Turn = { role: "user" | "assistant"; content: string };
 type Mood = "idle" | "listening" | "thinking" | "speaking";
@@ -29,46 +30,6 @@ function getRecognizer(): SpeechRecognitionLike | null {
   return r;
 }
 
-export function AgaveAvatar({ mood, size = 132 }: { mood: Mood; size?: number }) {
-  const leaves = [-72, -54, -36, -18, 0, 18, 36, 54, 72];
-  const fill = (i: number) => ["#016B54", "#018769", "#2FA183", "#57B89B"][Math.min(3, 3 - Math.abs(i - 4) + 1)] ?? "#018769";
-  return (
-    <div className={`nada-${mood} relative shrink-0`} aria-label={`Nada is ${mood}`}>
-      <svg width={size} height={size} viewBox="0 0 200 200">
-        <defs>
-          <radialGradient id="nadaGlow" cx="50%" cy="55%" r="50%">
-            <stop offset="0%" stopColor="#018769" stopOpacity="0.85" />
-            <stop offset="60%" stopColor="#018769" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#018769" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <circle cx="100" cy="100" r="96" fill="#231F20" />
-        <circle cx="100" cy="100" r="96" fill="none" stroke="#018769" strokeOpacity="0.35" strokeWidth="2" />
-        <circle className="nada-glow" cx="100" cy="100" r="78" fill="url(#nadaGlow)" />
-        {mood === "listening" && (
-          <>
-            <circle className="nada-ring" cx="100" cy="100" r="84" fill="none" stroke="#57B89B" strokeWidth="2" />
-            <circle className="nada-ring nada-ring2" cx="100" cy="100" r="84" fill="none" stroke="#57B89B" strokeWidth="2" />
-          </>
-        )}
-        {leaves.map((angle, i) => (
-          <path
-            key={angle}
-            className="agave-leaf"
-            style={{ ["--r" as string]: `${angle}deg`, ["--d" as string]: `${i * 0.12}s` } as React.CSSProperties}
-            d="M100 148 C 91 112, 93 72, 100 38 C 107 72, 109 112, 100 148 Z"
-            fill={fill(i)}
-            stroke="#F3F8E4"
-            strokeOpacity="0.18"
-            strokeWidth="1"
-          />
-        ))}
-        <circle cx="100" cy="140" r="7" fill="#F3F8E4" opacity="0.9" />
-      </svg>
-    </div>
-  );
-}
-
 /**
  * Nada's stage: her own page. A large levitating orb you talk to, with the
  * conversation flowing beneath. Sessions live server-side, so the thread
@@ -89,6 +50,52 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   const moodRef = useRef<Mood>("idle");
   moodRef.current = mood;
 
+  // live audio amplitude driving the orb — from her voice while speaking,
+  // from the mic while listening; the orb self-animates when neither is live
+  const levelRef = useRef<OrbLevel>({ value: 0, live: false });
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const meterStop = useRef<(() => void) | null>(null);
+
+  const audioContext = (): AudioContext | null => {
+    if (!audioCtxRef.current) {
+      const Ctor =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return null;
+      audioCtxRef.current = new Ctor();
+    }
+    audioCtxRef.current.resume().catch(() => undefined);
+    return audioCtxRef.current;
+  };
+
+  const startMeter = (analyser: AnalyserNode, cleanup?: () => void) => {
+    meterStop.current?.();
+    const data = new Uint8Array(analyser.fftSize);
+    let raf = 0;
+    levelRef.current.live = true;
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.min(1, Math.sqrt(sum / data.length) * 3.2);
+      levelRef.current.value = levelRef.current.value * 0.6 + rms * 0.4;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    document.documentElement.dataset.nadaLive = "1"; // observable for tests/devtools
+    meterStop.current = () => {
+      cancelAnimationFrame(raf);
+      levelRef.current.value = 0;
+      levelRef.current.live = false;
+      delete document.documentElement.dataset.nadaLive;
+      cleanup?.();
+      meterStop.current = null;
+    };
+  };
+
   useEffect(() => {
     setMicSupported(!!getRecognizer());
     setVoiceOn(localStorage.getItem("nada-voice") === "on");
@@ -105,7 +112,10 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     return () => {
       window.speechSynthesis?.cancel();
       audioRef.current?.pause();
+      meterStop.current?.();
+      audioCtxRef.current?.close().catch(() => undefined);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -127,6 +137,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   const speak = async (text: string) => {
     if (!voiceOn) return;
     audioRef.current?.pause();
+    meterStop.current?.();
     if (elevenOn) {
       // her real voice — ElevenLabs via the server; browser voice is the net
       try {
@@ -142,12 +153,28 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
           audio.onplay = () => setMood("speaking");
           audio.onended = () => {
             setMood("idle");
+            meterStop.current?.();
             URL.revokeObjectURL(url);
           };
           audio.onerror = () => {
             setMood("idle");
+            meterStop.current?.();
             URL.revokeObjectURL(url);
           };
+          try {
+            // route her voice through an analyser so the orb rides the waveform
+            const actx = audioContext();
+            if (actx) {
+              const src = actx.createMediaElementSource(audio);
+              const analyser = actx.createAnalyser();
+              analyser.fftSize = 512;
+              src.connect(analyser);
+              analyser.connect(actx.destination);
+              startMeter(analyser);
+            }
+          } catch {
+            // metering is a nicety — playback continues without it
+          }
           await audio.play();
           return;
         }
@@ -194,10 +221,12 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     };
     r.onend = () => {
       setMood("idle");
+      meterStop.current?.();
       if (finalText.trim()) send(finalText);
     };
     r.onerror = (e) => {
       setMood("idle");
+      meterStop.current?.();
       const code = e?.error ?? "";
       if (code === "no-speech" || code === "aborted") return; // tapped without talking — not an error
       if (code === "not-allowed" || code === "service-not-allowed") {
@@ -213,6 +242,26 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     setError("");
     setMood("listening");
     r.start();
+    // meter the mic so the orb reacts to the user's voice while she listens
+    navigator.mediaDevices
+      ?.getUserMedia({ audio: true })
+      .then((stream) => {
+        if (moodRef.current !== "listening") {
+          stream.getTracks().forEach((tr) => tr.stop());
+          return;
+        }
+        const actx = audioContext();
+        if (!actx) {
+          stream.getTracks().forEach((tr) => tr.stop());
+          return;
+        }
+        const src = actx.createMediaStreamSource(stream);
+        const analyser = actx.createAnalyser();
+        analyser.fftSize = 512;
+        src.connect(analyser); // never to destination — no feedback loop
+        startMeter(analyser, () => stream.getTracks().forEach((tr) => tr.stop()));
+      })
+      .catch(() => undefined);
   };
 
   const toggleVoice = () => {
@@ -243,20 +292,42 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
         </button>
       </div>
 
-      {/* the orb */}
-      <div className="flex flex-col items-center pt-2">
+      {/* the stage */}
+      <div className="relative flex flex-col items-center overflow-hidden pb-1 pt-3">
+        <div className="nada-stage-bg pointer-events-none absolute inset-0" aria-hidden />
+        <div className="nada-hud-frame pointer-events-none absolute inset-3" aria-hidden />
+        <div className="nada-hud-frame nada-hud-frame-alt pointer-events-none absolute inset-3" aria-hidden />
         <button
           onClick={micSupported ? listen : undefined}
           aria-label={micSupported ? (mood === "listening" ? "Stop listening" : "Talk to Nada") : "Nada"}
-          className={`nada-float rounded-full ${micSupported ? "cursor-pointer transition-transform hover:scale-[1.03] active:scale-95" : "cursor-default"}`}
+          className={`nada-float relative rounded-full ${micSupported ? "cursor-pointer transition-transform hover:scale-[1.02] active:scale-95" : "cursor-default"}`}
           title={micSupported ? "Tap to talk" : undefined}
         >
-          <AgaveAvatar mood={mood} size={210} />
+          <NadaOrb mood={mood} size={280} level={levelRef} />
         </button>
-        <div className="nada-shadow -mt-2 h-3 w-32 rounded-[50%] bg-ink shadow-[0_0_24px_10px_rgba(1,135,105,0.25)]" />
-        <div className="brand-heading mt-3 text-lg tracking-[0.3em] text-cream">NADA</div>
-        <div className="mt-0.5 text-xs text-cream/50">
-          {mood === "listening" ? "listening — speak now" : mood === "thinking" ? "checking the numbers…" : mood === "speaking" ? "speaking" : micSupported ? "tap the orb to talk, or type below" : "type below"}
+        <div className="nada-shadow -mt-3 h-3 w-36 rounded-[50%] bg-ink shadow-[0_0_28px_12px_rgba(1,135,105,0.3)]" />
+        <div className="brand-heading relative mt-3 text-lg tracking-[0.35em] text-cream">NADA</div>
+        <div className="relative mt-1.5 flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-cream/55">
+          <span
+            className={`inline-block h-1.5 w-1.5 rounded-full ${
+              mood === "listening"
+                ? "animate-pulse bg-blanco"
+                : mood === "thinking"
+                  ? "animate-pulse bg-reposado"
+                  : mood === "speaking"
+                    ? "animate-pulse bg-cream"
+                    : "bg-agave"
+            }`}
+          />
+          {mood === "listening"
+            ? "listening — speak now"
+            : mood === "thinking"
+              ? "processing"
+              : mood === "speaking"
+                ? "speaking"
+                : micSupported
+                  ? "online — tap the core to talk"
+                  : "online — type below"}
         </div>
       </div>
 
