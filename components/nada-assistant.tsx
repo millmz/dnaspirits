@@ -14,7 +14,7 @@ type SpeechRecognitionLike = {
   stop: () => void;
   onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> & { [i: number]: { isFinal: boolean } & ArrayLike<{ transcript: string }> } }) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((e: { error?: string }) => void) | null;
 };
 
 function getRecognizer(): SpeechRecognitionLike | null {
@@ -196,10 +196,21 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
       setMood("idle");
       if (finalText.trim()) send(finalText);
     };
-    r.onerror = () => {
+    r.onerror = (e) => {
       setMood("idle");
-      setError("Couldn't hear you — check the mic permission and try again.");
+      const code = e?.error ?? "";
+      if (code === "no-speech" || code === "aborted") return; // tapped without talking — not an error
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        setError(
+          "The browser is blocking the mic. Click the icon by the address bar, allow the microphone for this site, then tap Nada again."
+        );
+      } else if (code === "network") {
+        setError("Speech recognition needs a moment — check your connection and try again.");
+      } else {
+        setError("Couldn't hear you — check the mic permission and try again.");
+      }
     };
+    setError("");
     setMood("listening");
     r.start();
   };
