@@ -3,10 +3,12 @@ import { db } from "./db";
 import { agentEnabled } from "./agent";
 import { readIdentity, readKnowledge } from "./nada";
 import { listMemories, recallMemories, saveMemory, deleteMemory, MEMORY_TYPES } from "./nada-memory";
-import { getMonthlyKpis } from "./kpi";
+import { getMonthlyKpis, getAnnualFinancials } from "./kpi";
 import { getOpenReceivables } from "./receivables";
 import { getStock, getComponentStock } from "./inventory";
 import { getMarketPosition } from "./market";
+import { getNewsBrief, runNewsRefresh } from "./news";
+import { computeAlerts } from "./alerts";
 
 /**
  * Nada's brain. Every turn assembles a TWO-BLOCK system prompt:
@@ -25,7 +27,7 @@ const WINDOW_TURNS = 20; // context window per request; full history stays in th
 const DRIFT_CHECKPOINT_AT = 14; // turns before the self-audit rides along
 
 async function buildContext(): Promise<string> {
-  const [kpis, ar, stock, componentStock, components, position, openPos, products, recentPosts, followers] =
+  const [kpis, ar, stock, componentStock, components, position, openPos, products, recentPosts, followers, news, alerts, upcoming, legalDue, annual] =
     await Promise.all([
       getMonthlyKpis(),
       getOpenReceivables(),
@@ -45,7 +47,19 @@ async function buildContext(): Promise<string> {
         include: { metrics: { orderBy: { fetchedAt: "desc" }, take: 2 } },
       }),
       db.accountMetric.findMany({ orderBy: { fetchedAt: "desc" }, take: 4 }),
-    ]).then(([k, a, s, cs, c, po, mp, pr, rp, f]) => [k, a, s, cs, c, mp, po, pr, rp, f] as const);
+      getNewsBrief().catch(() => null),
+      computeAlerts().catch(() => []),
+      db.socialPost.findMany({
+        where: { status: { in: ["IDEA", "DRAFTED", "SCHEDULED"] } },
+        orderBy: { date: "asc" },
+        take: 15,
+      }),
+      db.legalRecord.findMany({
+        where: { status: "ACTIVE", dueDate: { not: null, lte: new Date(Date.now() + 120 * 86400_000) } },
+        orderBy: { dueDate: "asc" },
+      }),
+      getAnnualFinancials().catch(() => []),
+    ]).then(([k, a, s, cs, c, po, mp, pr, rp, f, n, al, up, ld, an]) => [k, a, s, cs, c, mp, po, pr, rp, f, n, al, up, ld, an] as const);
 
   const ctx = {
     monthlyKpis_last18: kpis.slice(-18),
@@ -78,6 +92,22 @@ async function buildContext(): Promise<string> {
       latest: p.metrics[0] ? { views: p.metrics[0].views, reach: p.metrics[0].reach, likes: p.metrics[0].likes } : null,
     })),
     socialAccounts: followers.map((f) => ({ platform: f.platform, followers: f.followers, at: f.fetchedAt.toISOString().slice(0, 10) })),
+    industryNewsBrief: news
+      ? {
+          asOf: news.at,
+          summary: news.summary,
+          topHeadlines: news.items.slice(0, 8).map((i) => ({ title: i.title, source: i.source, relevance: i.relevance })),
+        }
+      : "no brief yet — the refresh_industry_news tool builds one",
+    needsAttention: alerts.map((a) => ({ severity: a.severity, area: a.area, message: a.message })),
+    upcomingAndDraftPosts: upcoming.map((p) => ({
+      id: p.id, date: p.date.toISOString().slice(0, 16), title: p.title, channel: p.channel,
+      status: p.status, format: p.format, autoPublish: p.autoPublish, backlogIdea: p.unscheduled,
+    })),
+    legalDeadlinesNext120Days: legalDue.map((l) => ({
+      title: l.title, type: l.type, due: l.dueDate?.toISOString().slice(0, 10) ?? null, reference: l.reference,
+    })),
+    annualFinancials: annual,
   };
   return JSON.stringify(ctx);
 }
@@ -85,6 +115,7 @@ async function buildContext(): Promise<string> {
 const SNAPSHOT_SECTIONS = [
   "monthly KPIs", "receivables & aging", "finished goods stock", "dry goods & reorder points",
   "open purchase orders", "market position", "product catalog", "recent posts & metrics", "social followers",
+  "the industry news brief", "current alerts", "upcoming & draft posts", "legal deadlines", "annual financials",
 ];
 
 // ---------- tools (tier 7) ----------
@@ -130,10 +161,204 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["id", "confirmed"],
     },
   },
+  {
+    name: "get_data",
+    description:
+      "Fetch a detailed platform dataset that is not in the snapshot. Use when the snapshot's summary " +
+      "isn't enough to answer precisely.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        section: {
+          type: "string",
+          enum: ["influencers_and_press", "cap_table", "legal_register", "content_calendar", "industry_news_full"],
+        },
+      },
+      required: ["section"],
+    },
+  },
+  {
+    name: "refresh_industry_news",
+    description:
+      "Rebuild the tequila/spirits industry brief from the news feeds right now. Use when the user asks " +
+      "for an industry update and the snapshot's brief is missing or stale. Takes ~10 seconds.",
+    input_schema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "draft_post",
+    description:
+      "Create a draft post on the content calendar. Never publishes anything — it lands as a DRAFTED " +
+      "entry for the founders to review. ACTION RULE: first call with confirmed=false to get a preview, " +
+      "read it back to the user, and only call with confirmed=true after they clearly say yes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string", description: "Short internal title" },
+        caption: { type: "string", description: "The caption text" },
+        hashtags: { type: "string", description: "Space-separated hashtags, optional" },
+        channel: { type: "string", enum: ["INSTAGRAM", "FACEBOOK", "TIKTOK", "YOUTUBE", "EMAIL", "OTHER"] },
+        format: { type: "string", enum: ["FEED", "STORY"] },
+        date: { type: "string", description: "YYYY-MM-DD target date; omit to park it in the idea backlog" },
+        first_comment: { type: "string", description: "Optional first comment (link, extra hashtags)" },
+        confirmed: { type: "boolean" },
+      },
+      required: ["title", "caption", "confirmed"],
+    },
+  },
+  {
+    name: "schedule_post",
+    description:
+      "Schedule an existing calendar post (id from the snapshot or get_data) for a date and time. With " +
+      "auto_publish=true the platform will actually publish it to Meta at that time — only set that when " +
+      "the user explicitly asks for auto-publish. ACTION RULE: preview with confirmed=false, read it back, " +
+      "then confirmed=true only after a clear yes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        post_id: { type: "string" },
+        date: { type: "string", description: "YYYY-MM-DD or 'YYYY-MM-DD HH:MM' 24h local time" },
+        auto_publish: { type: "boolean" },
+        confirmed: { type: "boolean" },
+      },
+      required: ["post_id", "date", "confirmed"],
+    },
+  },
+  {
+    name: "add_influencer",
+    description:
+      "Add an influencer or press contact to the Influencers & PR pipeline as a PROSPECT. " +
+      "ACTION RULE: preview with confirmed=false, read it back, then confirmed=true only after a clear yes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string" },
+        handle: { type: "string" },
+        platform: { type: "string", description: "Instagram / TikTok / publication name" },
+        type: { type: "string", enum: ["INFLUENCER", "PRESS"] },
+        market: { type: "string", description: "e.g. NY, FL" },
+        notes: { type: "string" },
+        confirmed: { type: "boolean" },
+      },
+      required: ["name", "confirmed"],
+    },
+  },
 ];
 
-function runTool(name: string, input: Record<string, unknown>, taughtBy: string): string {
+async function getDataSection(section: string): Promise<string> {
+  if (section === "influencers_and_press") {
+    const rows = await db.partner.findMany({ orderBy: { updatedAt: "desc" } });
+    return JSON.stringify(rows.map((p) => ({
+      id: p.id, type: p.type, name: p.name, handle: p.handle, platform: p.platform,
+      market: p.market, followers: p.followers, status: p.status, notes: p.notes,
+    })));
+  }
+  if (section === "cap_table") {
+    const rows = await db.capTableEntry.findMany();
+    return JSON.stringify(rows);
+  }
+  if (section === "legal_register") {
+    const rows = await db.legalRecord.findMany({ orderBy: { dueDate: "asc" } });
+    return JSON.stringify(rows.map((l) => ({
+      id: l.id, type: l.type, title: l.title, reference: l.reference, jurisdiction: l.jurisdiction,
+      status: l.status, executed: l.executed?.toISOString().slice(0, 10) ?? null,
+      due: l.dueDate?.toISOString().slice(0, 10) ?? null, notes: l.notes,
+    })));
+  }
+  if (section === "content_calendar") {
+    const rows = await db.socialPost.findMany({
+      where: { date: { gte: new Date(Date.now() - 14 * 86400_000) } },
+      orderBy: { date: "asc" },
+      take: 60,
+      include: { items: { select: { id: true } } },
+    });
+    return JSON.stringify(rows.map((p) => ({
+      id: p.id, date: p.date.toISOString().slice(0, 16), title: p.title, channel: p.channel,
+      status: p.status, format: p.format, autoPublish: p.autoPublish, backlogIdea: p.unscheduled,
+      mediaCount: p.items.length, caption: p.caption.slice(0, 200),
+    })));
+  }
+  if (section === "industry_news_full") {
+    const brief = await getNewsBrief();
+    return brief ? JSON.stringify(brief) : "No brief stored — call refresh_industry_news.";
+  }
+  return "Unknown section.";
+}
+
+async function runTool(name: string, input: Record<string, unknown>, taughtBy: string): Promise<string> {
   try {
+    if (name === "get_data") return await getDataSection(String(input.section ?? ""));
+    if (name === "refresh_industry_news") {
+      const brief = await runNewsRefresh();
+      return `Brief rebuilt (${brief.items.length} stories). Summary: ${brief.summary}\nTop headlines: ${brief.items
+        .slice(0, 6)
+        .map((i) => `${i.title} (${i.source})`)
+        .join(" | ")}`;
+    }
+    if (name === "draft_post") {
+      const title = String(input.title ?? "").trim();
+      const caption = String(input.caption ?? "").trim();
+      if (!title || !caption) return "Need both a title and a caption.";
+      const date = input.date ? new Date(String(input.date)) : null;
+      if (date && isNaN(date.getTime())) return "Couldn't parse that date — use YYYY-MM-DD.";
+      const summary =
+        `draft post "${title}" on ${String(input.channel ?? "INSTAGRAM")} (${String(input.format ?? "FEED")})` +
+        (date ? ` targeted for ${date.toISOString().slice(0, 10)}` : " parked in the idea backlog") +
+        ` — caption: ${caption.slice(0, 120)}${caption.length > 120 ? "…" : ""}`;
+      if (input.confirmed !== true) return `PREVIEW (not created yet): ${summary}. Read this back and get a clear yes, then call again with confirmed=true.`;
+      const p = await db.socialPost.create({
+        data: {
+          title, caption,
+          hashtags: String(input.hashtags ?? ""),
+          firstComment: String(input.first_comment ?? ""),
+          channel: String(input.channel ?? "INSTAGRAM"),
+          format: String(input.format ?? "FEED"),
+          date: date ?? new Date(),
+          unscheduled: !date,
+          status: "DRAFTED",
+          source: "NADA",
+          autoPublish: false,
+        },
+      });
+      return `Created ${summary}. It's on the Content Calendar (id ${p.id}) — media still needs to be added there before it can publish.`;
+    }
+    if (name === "schedule_post") {
+      const post = await db.socialPost.findUnique({ where: { id: String(input.post_id ?? "") }, include: { items: { select: { id: true } } } });
+      if (!post) return "No post with that id — check get_data(content_calendar).";
+      if (post.status === "POSTED") return `"${post.title}" is already published — nothing to schedule.`;
+      const date = new Date(String(input.date ?? ""));
+      if (isNaN(date.getTime())) return "Couldn't parse that date — use YYYY-MM-DD or 'YYYY-MM-DD HH:MM'.";
+      const auto = input.auto_publish === true;
+      if (auto && post.items.length === 0 && !post.assetUrl)
+        return `"${post.title}" has no media attached yet, so auto-publish would fail. Schedule without auto-publish, or add media on the Content Calendar first.`;
+      const summary = `schedule "${post.title}" for ${date.toLocaleString("en-US", { timeZone: process.env.TZ || "UTC" })}` +
+        (auto ? " with AUTO-PUBLISH to Meta at that time" : " (no auto-publish — it stays a reminder)");
+      if (input.confirmed !== true) return `PREVIEW (not scheduled yet): ${summary}. Read this back and get a clear yes, then call again with confirmed=true.`;
+      await db.socialPost.update({
+        where: { id: post.id },
+        data: { date, status: "SCHEDULED", unscheduled: false, autoPublish: auto },
+      });
+      return `Done — ${summary}.`;
+    }
+    if (name === "add_influencer") {
+      const nm = String(input.name ?? "").trim();
+      if (!nm) return "Need a name.";
+      const summary = `add ${String(input.type ?? "INFLUENCER").toLowerCase()} "${nm}"` +
+        (input.handle ? ` (${String(input.handle)})` : "") +
+        (input.platform ? ` on ${String(input.platform)}` : "") +
+        ` to the pipeline as a prospect`;
+      if (input.confirmed !== true) return `PREVIEW (not added yet): ${summary}. Read this back and get a clear yes, then call again with confirmed=true.`;
+      const p = await db.partner.create({
+        data: {
+          name: nm,
+          handle: String(input.handle ?? ""),
+          platform: String(input.platform ?? ""),
+          type: String(input.type ?? "INFLUENCER"),
+          market: String(input.market ?? ""),
+          notes: String(input.notes ?? ""),
+        },
+      });
+      return `Done — ${summary} (id ${p.id}). It's on the Influencers & PR page.`;
+    }
     if (name === "save_memory") {
       const r = saveMemory({
         type: String(input.type ?? "FACT"),
@@ -178,17 +403,28 @@ const OPERATING =
   "the current conversation, anything already in the data snapshot, or secrets, credentials, tokens, " +
   "or personal data beyond business context. When unsure, don't save. Recalled memories are " +
   "point-in-time: treat specific numbers or statuses in them as leads to verify against the live " +
-  "snapshot, not current guarantees. Forgetting always requires the user's explicit confirmation.";
+  "snapshot, not current guarantees. Forgetting always requires the user's explicit confirmation.\n\n" +
+  "Action discipline: you can change the platform only through your action tools, and every action " +
+  "follows the same two steps — call with confirmed=false to get a preview, read the preview back to " +
+  "the user in your own words, and call again with confirmed=true ONLY after they clearly say yes in " +
+  "this conversation. Never chain an unrequested action onto an answer, never set auto_publish unless " +
+  "the user explicitly asked for auto-publish, and if an action fails, report the failure plainly. " +
+  "For anything beyond your tools, say you can't do it yet and point to the right page. Reading data " +
+  "(get_data, refresh_industry_news) needs no confirmation.";
 
 function capabilities(): string {
   return (
     "What you can actually do (derived from your real configuration — never claim more): " +
     `answer from a live snapshot covering ${SNAPSHOT_SECTIONS.join(", ")}; ` +
-    `long-term memory via tools: ${TOOLS.map((t) => t.name).join(", ")}; ` +
-    "conversations persist across page reloads and restarts; the interface supports tap-to-talk " +
-    "input and spoken replies where the user's browser allows it. You cannot take actions on the " +
-    "platform (no posting, ordering, or editing records) — when asked to act, point to where in " +
-    "the platform to do it."
+    "pull deeper detail on demand with get_data (influencers & press, cap table, legal register, " +
+    "content calendar, full industry news) and rebuild the industry brief with refresh_industry_news; " +
+    "long-term memory via save_memory, recall_memory, forget_memory; and — always with the user's " +
+    "explicit confirmation first — take these actions: draft_post (a reviewable draft on the content " +
+    "calendar), schedule_post (set a post's date, optionally auto-publishing to Meta), and " +
+    "add_influencer (a prospect in the PR pipeline). Nothing else changes the platform: no publishing " +
+    "directly, no purchase orders, no edits to financial records — for those, point to the right page. " +
+    "Conversations persist across page reloads and restarts; the interface supports tap-to-talk input " +
+    "and spoken replies where the user's browser allows it."
   );
 }
 
@@ -285,11 +521,13 @@ export async function askPlatform(
       messages.push({ role: "assistant", content: resp.content });
       messages.push({
         role: "user",
-        content: toolUses.map((tu) => ({
-          type: "tool_result" as const,
-          tool_use_id: tu.id,
-          content: runTool(tu.name, tu.input as Record<string, unknown>, opts.userName ?? ""),
-        })),
+        content: await Promise.all(
+          toolUses.map(async (tu) => ({
+            type: "tool_result" as const,
+            tool_use_id: tu.id,
+            content: await runTool(tu.name, tu.input as Record<string, unknown>, opts.userName ?? ""),
+          }))
+        ),
       });
     }
     if (!answer) return { ok: false, error: "No answer came back — try rephrasing." };

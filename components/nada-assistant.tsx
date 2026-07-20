@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { postJson } from "@/lib/upload-client";
 import { NadaOrb, type OrbLevel } from "@/components/nada-orb";
@@ -146,7 +147,8 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
       })
       .catch(() => undefined)
       .finally(() => setHydrated(true));
-    const sizeOrb = () => setOrbSize(Math.max(220, Math.min(340, Math.floor(window.innerWidth * 0.55))));
+    const sizeOrb = () =>
+      setOrbSize(Math.max(220, Math.min(400, Math.floor(Math.min(window.innerWidth * 0.55, window.innerHeight * 0.42)))));
     sizeOrb();
     window.addEventListener("resize", sizeOrb);
     return () => {
@@ -379,13 +381,18 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   const scrollLog = () => scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
 
   return (
-    <div className="relative flex min-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-xl border border-agave/25 bg-ink shadow-xl">
+    <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-ink">
       <div className="nada-stage-bg pointer-events-none absolute inset-0" aria-hidden />
-      <div className="nada-hud-frame pointer-events-none absolute inset-3" aria-hidden />
-      <div className="nada-hud-frame nada-hud-frame-alt pointer-events-none absolute inset-3" aria-hidden />
+      <div className="nada-hud-frame pointer-events-none absolute inset-3 sm:inset-4" aria-hidden />
+      <div className="nada-hud-frame nada-hud-frame-alt pointer-events-none absolute inset-3 sm:inset-4" aria-hidden />
 
       {/* quiet console controls */}
-      <div className="relative z-10 flex items-center justify-end gap-4 px-5 pt-4 font-mono text-[11px] lowercase tracking-wide">
+      <div className="relative z-10 flex items-center gap-4 px-5 pt-4 font-mono text-[11px] lowercase tracking-wide sm:px-7 sm:pt-5">
+        <Link href="/" className="text-cream/40 hover:text-cream" title="Back to the ops dashboard">
+          [ ← ops ]
+        </Link>
+        <span className="hidden text-cream/25 sm:inline">de nada · operations intelligence</span>
+        <span className="flex-1" />
         <button onClick={toggleVoice} className={voiceOn ? "text-agave hover:text-cream" : "text-cream/40 hover:text-cream"}>
           [ voice replies {voiceOn ? "on" : "off"} ]
         </button>
