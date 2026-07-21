@@ -99,14 +99,24 @@ export async function getAnnualFinancials(): Promise<
   Map<string, { income: number; expense: number }>
 > {
   const financials = await db.financialEntry.findMany();
-  const byYear = new Map<string, { income: number; expense: number }>();
+  // A year can exist twice: as a single "YYYY-FY" history row AND as monthly
+  // "YYYY-MM" detail from the bookkeeper's uploads. They describe the SAME
+  // year, so they must never be added together — when both exist, the FY row
+  // (the closed-year total) wins.
+  const fy = new Map<string, { income: number; expense: number }>();
+  const monthly = new Map<string, { income: number; expense: number }>();
   for (const f of financials) {
     const year = f.period.slice(0, 4);
     if (!/^\d{4}$/.test(year)) continue;
-    const y = byYear.get(year) ?? { income: 0, expense: 0 };
+    const bucket = /^\d{4}-\d{2}$/.test(f.period) ? monthly : fy;
+    const y = bucket.get(year) ?? { income: 0, expense: 0 };
     if (f.kind === "INCOME") y.income += f.amountCents;
     else y.expense += f.amountCents;
-    byYear.set(year, y);
+    bucket.set(year, y);
+  }
+  const byYear = new Map<string, { income: number; expense: number }>();
+  for (const year of [...new Set([...fy.keys(), ...monthly.keys()])].sort()) {
+    byYear.set(year, fy.get(year) ?? monthly.get(year)!);
   }
   return byYear;
 }
