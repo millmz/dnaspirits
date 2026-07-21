@@ -112,6 +112,13 @@ export async function register() {
   setTimeout(mentionsTick, 6 * 60 * 1000).unref?.();
   setInterval(mentionsTick, 60 * 60 * 1000).unref?.();
 
+  // Content trends: hourly staleness check, rebuilds the short-form trends
+  // brief (Google Trends, creator press, Reddit) once a day.
+  const { trendsWorkerTick } = await import("./lib/trends");
+  const trendsTick = () => trendsWorkerTick().catch((e) => console.error("trends: refresh failed:", e));
+  setTimeout(trendsTick, 7 * 60 * 1000).unref?.();
+  setInterval(trendsTick, 60 * 60 * 1000).unref?.();
+
   // Nada's long-term memory extractor: quiet sessions get distilled into
   // durable memories (deduped, secrets-free) — no-ops without the AI key.
   const { runNadaExtractor } = await import("./lib/ask");

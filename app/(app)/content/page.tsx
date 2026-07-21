@@ -7,6 +7,7 @@ import { isVideo } from "@/lib/media";
 import { editPost, advancePost, deletePost, publishNow, retryPublish, removePostMedia, movePostMedia, syncLiveFeed, createIdea, scheduleIdea, duplicatePost, createSeries, toggleSeries, deleteSeries } from "./actions";
 import { PostComposer, AddMedia } from "@/components/post-composer";
 import { agentEnabled } from "@/lib/agent";
+import { getTrendsBrief } from "@/lib/trends";
 import { SubmitButton } from "@/components/submit-button";
 
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -112,6 +113,7 @@ export default async function ContentPage({
   const fb = fbConfigured();
   const metaOn = ig || fb;
   const baseUrl = appBaseUrl();
+  const trendsBrief = await getTrendsBrief();
 
   return (
     <div>
@@ -559,6 +561,25 @@ export default async function ContentPage({
           </Card>
 
           </>)}
+          {panel === "compose" && trendsBrief && trendsBrief.trends.length > 0 && (
+            <Card title="What's working right now">
+              {trendsBrief.summary && (
+                <p className="mb-3 text-sm leading-relaxed text-ink/85">{trendsBrief.summary}</p>
+              )}
+              <ul className="space-y-2.5">
+                {trendsBrief.trends.slice(0, 3).map((t, i) => (
+                  <li key={i} className="text-sm leading-relaxed">
+                    <span className="font-medium text-agave-deep">{t.title}.</span>{" "}
+                    <span className="text-ink/80">{t.action}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-xs text-slate/70">
+                Refreshed daily from short-form and drinks-culture trends, matched to your own post
+                performance — ask Nada for the full picture and more ideas.
+              </p>
+            </Card>
+          )}
           {panel === "compose" && me?.role === "ADMIN" && (
             <Card title="Connect Instagram & Facebook">
               {metaOn ? (

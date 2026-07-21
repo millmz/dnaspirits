@@ -9,6 +9,7 @@ import { getStock, getComponentStock } from "./inventory";
 import { getMarketPosition } from "./market";
 import { getNewsBrief, runNewsRefresh } from "./news";
 import { getRecentMentions, runMentionScan } from "./mentions";
+import { getTrendsBrief, runTrendsRefresh } from "./trends";
 import { computeAlerts } from "./alerts";
 
 /**
@@ -28,7 +29,7 @@ const WINDOW_TURNS = 20; // context window per request; full history stays in th
 const DRIFT_CHECKPOINT_AT = 14; // turns before the self-audit rides along
 
 async function buildContext(): Promise<string> {
-  const [kpis, ar, stock, componentStock, components, position, openPos, products, recentPosts, followers, news, alerts, upcoming, legalDue, annual, bm] =
+  const [kpis, ar, stock, componentStock, components, position, openPos, products, recentPosts, followers, news, alerts, upcoming, legalDue, annual, bm, tb] =
     await Promise.all([
       getMonthlyKpis(),
       getOpenReceivables(),
@@ -61,7 +62,8 @@ async function buildContext(): Promise<string> {
       }),
       getAnnualFinancials().catch(() => []),
       getRecentMentions(8).catch(() => []),
-    ]).then(([k, a, s, cs, c, po, mp, pr, rp, f, n, al, up, ld, an, bm]) => [k, a, s, cs, c, mp, po, pr, rp, f, n, al, up, ld, an, bm] as const);
+      getTrendsBrief().catch(() => null),
+    ]).then(([k, a, s, cs, c, po, mp, pr, rp, f, n, al, up, ld, an, bm, tb]) => [k, a, s, cs, c, mp, po, pr, rp, f, n, al, up, ld, an, bm, tb] as const);
 
   const ctx = {
     monthlyKpis_last18: kpis.slice(-18),
@@ -114,6 +116,9 @@ async function buildContext(): Promise<string> {
       source: m.source, title: m.title.slice(0, 140), author: m.author,
       at: (m.publishedAt ?? m.foundAt).toISOString().slice(0, 10), url: m.url,
     })),
+    contentTrendsBrief: tb
+      ? { asOf: tb.at, summary: tb.summary, trends: tb.trends }
+      : "no trends brief yet — the scan_content_trends tool builds one",
   };
   return JSON.stringify(ctx);
 }
@@ -122,7 +127,7 @@ const SNAPSHOT_SECTIONS = [
   "monthly KPIs", "receivables & aging", "finished goods stock", "dry goods & reorder points",
   "open purchase orders", "market position", "product catalog", "recent posts & metrics", "social followers",
   "the industry news brief", "current alerts", "upcoming & draft posts", "legal deadlines", "annual financials",
-  "recent brand mentions from around the internet",
+  "recent brand mentions from around the internet", "the short-form content trends brief with recommendations",
 ];
 
 // ---------- tools (tier 7) ----------
@@ -178,7 +183,7 @@ const TOOLS: Anthropic.Tool[] = [
       properties: {
         section: {
           type: "string",
-          enum: ["influencers_and_press", "cap_table", "legal_register", "content_calendar", "industry_news_full", "brand_mentions"],
+          enum: ["influencers_and_press", "cap_table", "legal_register", "content_calendar", "industry_news_full", "brand_mentions", "content_trends_full"],
         },
       },
       required: ["section"],
@@ -189,6 +194,16 @@ const TOOLS: Anthropic.Tool[] = [
     description:
       "Rebuild the tequila/spirits industry brief from the news feeds right now. Use when the user asks " +
       "for an industry update and the snapshot's brief is missing or stale. Takes ~10 seconds.",
+    input_schema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "scan_content_trends",
+    description:
+      "Rebuild the short-form content trends brief right now: sweeps Google Trends, creator-economy " +
+      "press, cocktail culture, and marketing communities, then crosses them with De Nada's own post " +
+      "performance into concrete recommendations. The platform refreshes this daily — use when the " +
+      "user asks what's trending or how to grow engagement/followers/views and the snapshot's brief " +
+      "is stale or missing. Takes ~20 seconds.",
     input_schema: { type: "object" as const, properties: {} },
   },
   {
@@ -296,6 +311,10 @@ async function getDataSection(section: string): Promise<string> {
     const brief = await getNewsBrief();
     return brief ? JSON.stringify(brief) : "No brief stored — call refresh_industry_news.";
   }
+  if (section === "content_trends_full") {
+    const brief = await getTrendsBrief();
+    return brief ? JSON.stringify(brief) : "No trends brief stored — call scan_content_trends.";
+  }
   if (section === "brand_mentions") {
     const rows = await getRecentMentions(40);
     if (rows.length === 0) return "No mentions found yet — call scan_brand_mentions to sweep right now.";
@@ -316,6 +335,13 @@ async function runTool(name: string, input: Record<string, unknown>, taughtBy: s
         .slice(0, 6)
         .map((i) => `${i.title} (${i.source})`)
         .join(" | ")}`;
+    }
+    if (name === "scan_content_trends") {
+      const b = await runTrendsRefresh();
+      if (b.items.length === 0) return "The sweep came back empty — trend sources may be unreachable right now.";
+      return `Trends brief rebuilt from ${b.items.length} signals. ${b.summary}\n\nRecommendations:\n${b.trends
+        .map((t, i) => `${i + 1}. ${t.title} — ${t.insight} DO: ${t.action}`)
+        .join("\n")}`;
     }
     if (name === "scan_brand_mentions") {
       const r = await runMentionScan();
@@ -444,8 +470,11 @@ function capabilities(): string {
     "What you can actually do (derived from your real configuration — never claim more): " +
     `answer from a live snapshot covering ${SNAPSHOT_SECTIONS.join(", ")}; ` +
     "pull deeper detail on demand with get_data (influencers & press, cap table, legal register, " +
-    "content calendar, full industry news, brand mentions), rebuild the industry brief with " +
-    "refresh_industry_news, and sweep the internet for fresh De Nada mentions with scan_brand_mentions; " +
+    "content calendar, full industry news, brand mentions, the full content trends brief), rebuild " +
+    "the industry brief with refresh_industry_news, sweep the internet for fresh De Nada mentions " +
+    "with scan_brand_mentions, and rebuild the short-form content trends brief (what's working on " +
+    "TikTok/Reels for spirits and CPG brands, crossed with De Nada's own post performance) with " +
+    "scan_content_trends; " +
     "long-term memory via save_memory, recall_memory, forget_memory; and — always with the user's " +
     "explicit confirmation first — take these actions: draft_post (a reviewable draft on the content " +
     "calendar), schedule_post (set a post's date, optionally auto-publishing to Meta), and " +
