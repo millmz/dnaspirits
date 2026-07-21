@@ -480,7 +480,8 @@ async function dynamicBlock(question: string, turnCount: number): Promise<string
 async function loadSession(sessionId: string | undefined, firstQuestion: string, userName: string) {
   if (sessionId) {
     const s = await db.nadaSession.findUnique({ where: { id: sessionId } });
-    if (s) return s;
+    // a closed session stays closed — a stale tab gets a fresh one instead
+    if (s && !s.closed) return s;
   }
   return db.nadaSession.create({
     data: { title: firstQuestion.slice(0, 80), userId: userName },
@@ -491,12 +492,22 @@ export type AskTurn = { role: "user" | "assistant"; content: string };
 
 export async function getLatestSession(): Promise<{ id: string; turns: AskTurn[] } | null> {
   const s = await db.nadaSession.findFirst({
-    where: { lastAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+    where: { closed: false, lastAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     orderBy: { lastAt: "desc" },
     include: { turns: { orderBy: { createdAt: "asc" }, take: 60 } },
   });
   if (!s || s.turns.length === 0) return null;
   return { id: s.id, turns: s.turns.map((t) => ({ role: t.role as "user" | "assistant", content: t.content })) };
+}
+
+/**
+ * "New conversation": close every open session, so nothing — not the current
+ * thread, not an older one from this morning — ever gets resumed into the
+ * fresh start. Memory extraction still processes closed sessions.
+ */
+export async function closeOpenSessions(): Promise<number> {
+  const r = await db.nadaSession.updateMany({ where: { closed: false }, data: { closed: true } });
+  return r.count;
 }
 
 // ---------- the ask loop ----------

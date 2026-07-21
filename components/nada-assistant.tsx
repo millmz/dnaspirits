@@ -105,6 +105,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   const voiceRef = useRef(false);
   voiceRef.current = voiceOn;
   const lastInputWasVoice = useRef(false);
+  const resumeDismissed = useRef(false);
 
   // live audio amplitude driving the orb — from her voice while speaking,
   // from the mic while listening; the orb self-animates when neither is live
@@ -158,10 +159,14 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     fetch("/api/ask", { headers: { "x-denada": "1" } })
       .then((r) => r.json())
       .then((r) => {
-        if (r.ok && r.session) {
-          setSessionId(r.session.id);
-          hydratedCount.current = r.session.turns.length;
-          setTurns(r.session.turns);
+        // never overwrite a conversation the user has already reset or started
+        if (r.ok && r.session && !resumeDismissed.current && moodRef.current === "idle") {
+          setSessionId((cur) => cur ?? r.session.id);
+          setTurns((cur) => {
+            if (cur.length > 0) return cur;
+            hydratedCount.current = r.session.turns.length;
+            return r.session.turns;
+          });
         }
       })
       .catch(() => undefined)
@@ -417,10 +422,21 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   };
 
   const newChat = () => {
+    resumeDismissed.current = true; // a late resume fetch must not repopulate the old thread
+    // silence everything from the old conversation
+    recognizer.current?.stop();
+    audioRef.current?.pause();
+    window.speechSynthesis?.cancel();
+    meterStop.current?.();
+    lastInputWasVoice.current = false;
+    // close every open thread server-side so a reload can't resurrect any of them
+    fetch("/api/ask", { method: "DELETE", headers: { "x-denada": "1" } }).catch(() => undefined);
     setSessionId(undefined);
     hydratedCount.current = 0;
     setTurns([]);
+    setInput("");
     setError("");
+    setMood("idle");
   };
 
   type CheckRow = { label: string; ok: boolean | null; note: string };

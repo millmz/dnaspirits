@@ -57,6 +57,7 @@ model NadaSession {
   title     String     @default("")
   userId    String     @default("")
   extracted Boolean    @default(false) // long-term memory extractor has processed this session
+  closed    Boolean    @default(false) // user started a new conversation — never resume this one
   startedAt DateTime   @default(now())
   lastAt    DateTime   @default(now())
   turns     NadaTurn[]

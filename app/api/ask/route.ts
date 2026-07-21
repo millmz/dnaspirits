@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { apiOpsUser } from "@/lib/api-auth";
-import { askPlatform, getLatestSession } from "@/lib/ask";
+import { askPlatform, getLatestSession, closeOpenSessions } from "@/lib/ask";
 
 /** Ask Nada. Sessions persist server-side; the client only holds a session id. */
 export async function POST(req: Request) {
@@ -26,4 +26,12 @@ export async function GET(req: Request) {
   if (!auth.ok) return auth.res;
   const latest = await getLatestSession();
   return Response.json({ ok: true, session: latest });
+}
+
+/** New conversation: close every open session server-side so nothing resumes — ever. */
+export async function DELETE(req: Request) {
+  const auth = await apiOpsUser(req);
+  if (!auth.ok) return auth.res;
+  const closed = await closeOpenSessions();
+  return Response.json({ ok: true, closed });
 }
