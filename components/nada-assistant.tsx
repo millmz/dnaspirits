@@ -125,6 +125,27 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     return audioCtxRef.current;
   };
 
+  /**
+   * iOS Safari only lets an AudioContext reach the "running" state if it's
+   * created and resumed synchronously inside a user gesture. A typed question
+   * runs speak() seconds later, off-gesture — so we unlock the context here,
+   * on every gesture that leads to speech (send, orb tap, voice toggle), and
+   * play a one-frame silent buffer to satisfy the media-playback unlock too.
+   */
+  const primeAudio = () => {
+    const actx = audioContext();
+    if (!actx) return;
+    try {
+      const buf = actx.createBuffer(1, 1, 22050);
+      const src = actx.createBufferSource();
+      src.buffer = buf;
+      src.connect(actx.destination);
+      src.start(0);
+    } catch {
+      // context is fussy — nothing to do; playback path guards on state anyway
+    }
+  };
+
   const startMeter = (analyser: AnalyserNode, cleanup?: () => void) => {
     meterStop.current?.();
     const data = new Uint8Array(analyser.fftSize);
@@ -272,11 +293,15 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
             meterStop.current?.();
             URL.revokeObjectURL(url);
           };
-          try {
-            // route her voice through an analyser so the orb rides the waveform
-            const actx = audioContext();
-            if (actx) {
-              await actx.resume().catch(() => undefined);
+          // Route through an analyser ONLY when the context is truly running.
+          // On a suspended iOS context, createMediaElementSource would reroute
+          // the element into a silent graph — play() then "succeeds" with no
+          // sound. Playing the element directly always reaches the speaker;
+          // the orb falls back to its synthetic speaking envelope.
+          const actx = audioContext();
+          if (actx) await actx.resume().catch(() => undefined);
+          if (actx && actx.state === "running") {
+            try {
               const src = actx.createMediaElementSource(audio);
               const analyser = actx.createAnalyser();
               analyser.fftSize = 512;
@@ -291,15 +316,15 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
                   // already gone
                 }
               });
+            } catch {
+              // metering is a nicety — playback continues without it
             }
-          } catch {
-            // metering is a nicety — playback continues without it
           }
           try {
             await audio.play();
             return;
           } catch {
-            // autoplay blocked (common on phones) — release and use the browser voice
+            // playback truly blocked — release and use the browser voice
             meterStop.current?.();
           }
         }
@@ -333,6 +358,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
   }
 
   const listen = () => {
+    primeAudio(); // this tap is also the gesture that unlocks her spoken reply
     if (moodRef.current === "listening") {
       recognizer.current?.stop();
       return;
@@ -418,7 +444,8 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     const next = !voiceOn;
     setVoiceOn(next);
     localStorage.setItem("nada-voice", next ? "on" : "off");
-    if (!next) window.speechSynthesis?.cancel();
+    if (next) primeAudio(); // turning voice on is a gesture — unlock audio now
+    else window.speechSynthesis?.cancel();
   };
 
   const newChat = () => {
@@ -615,6 +642,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          primeAudio(); // unlock audio inside the gesture, before the async reply
           lastInputWasVoice.current = false;
           send(input);
         }}
