@@ -12,9 +12,8 @@ import { db } from "./db";
 
 export type MonthlyKpi = {
   period: string; // YYYY-MM
-  depletionCases: number; // 9L cases sold through to retail
+  depletionCases: number; // physical cases sold through to retail
   shipmentCases: number; // physical cases invoiced ex-works to the importer
-  shipment9lCases: number; // the same shipments in 9L equivalents (comparable to depletions)
   shipmentRevenueCents: number;
   cogsCents: number; // production cost of the shipped cases
   chargebackCents: number; // importer billbacks (trade spend) dated this month
@@ -45,7 +44,6 @@ export async function getMonthlyKpis(): Promise<MonthlyKpi[]> {
         period,
         depletionCases: 0,
         shipmentCases: 0,
-        shipment9lCases: 0,
         shipmentRevenueCents: 0,
         cogsCents: 0,
         chargebackCents: 0,
@@ -65,9 +63,6 @@ export async function getMonthlyKpis(): Promise<MonthlyKpi[]> {
     const m = at(s.date.toISOString().slice(0, 7));
     for (const l of s.lines) {
       m.shipmentCases += l.cases;
-      // 9L-equivalent so shipments can sit next to depletions honestly:
-      // a physical case is bottlesPerCase × sizeMl of liquid; 9L case = 9000ml
-      m.shipment9lCases += (l.cases * l.product.bottlesPerCase * l.product.sizeMl) / 9000;
       m.shipmentRevenueCents += l.cases * l.pricePerCaseCents;
       m.cogsCents += l.cases * l.product.caseCostCents;
     }
@@ -142,7 +137,7 @@ export function ytdComparison(monthly: MonthlyKpi[], year: number) {
 export type SkuMix = {
   periods: string[]; // ascending
   products: { id: string; sku: string; name: string; tier: string }[];
-  cases: Map<string, number>; // `${productId}|${period}` -> 9L cases
+  cases: Map<string, number>; // `${productId}|${period}` -> physical cases
 };
 
 export async function getSkuMix(lastN = 6): Promise<SkuMix> {

@@ -6,7 +6,8 @@ import { getStock } from "./inventory";
  *   1. Ours ......... bottled stock in our warehouses (movement ledger)
  *   2. LSI .......... the importer's on-hand stock (their monthly report)
  *   3. Distributors . stock sitting at distributors (same report)
- * Tiers 2 and 3 use each holder's most recent reported month, in 9L cases.
+ * Tiers 2 and 3 use each holder's most recent reported month. Everything is
+ * PHYSICAL cases — a real sellable case, the unit De Nada tracks.
  */
 
 export type PipelineRow = {
@@ -15,11 +16,11 @@ export type PipelineRow = {
   name: string;
   tier: string;
   ownBottles: number;
-  own9l: number; // our stock in 9L-equivalent cases
-  lsi9l: number;
-  dist9l: number;
-  total9l: number;
-  velocityCasesPerMonth: number; // 3-month average depletions (9L)
+  ownCases: number; // our bottled stock, in physical cases
+  lsiCases: number;
+  distCases: number;
+  totalCases: number;
+  velocityCasesPerMonth: number; // 3-month average depletions (physical cases)
   weeksOfSupply: number | null; // market stock (LSI + distributors) vs velocity
 };
 
@@ -38,7 +39,7 @@ export type InventoryPipeline = {
   distributorHoldings: DistributorHolding[]; // per-distributor breakdown, latest report each
   lsiAsOf: string | null; // newest importer-stock period
   distAsOf: string | null; // newest distributor-stock period
-  totals: { own9l: number; lsi9l: number; dist9l: number; total9l: number };
+  totals: { ownCases: number; lsiCases: number; distCases: number; totalCases: number };
 };
 
 export async function getInventoryPipeline(): Promise<InventoryPipeline> {
@@ -60,12 +61,12 @@ export async function getInventoryPipeline(): Promise<InventoryPipeline> {
   const rows: PipelineRow[] = products.map((p) => {
     const ownRow = ownByProduct.get(p.id);
     const ownBottles = ownRow?.totalBottles ?? 0;
-    const own9l = (ownBottles * p.sizeMl) / 9000;
+    const ownCases = ownBottles / p.bottlesPerCase;
 
     // latest report per holder for this product
     const mine = stocks.filter((s) => s.productId === p.id);
-    let lsi9l = 0;
-    let dist9l = 0;
+    let lsiCases = 0;
+    let distCases = 0;
     const latestByHolder = new Map<string, { period: string; cases: number; holderType: string; distributorId: string | null }>();
     for (const s of mine) {
       const key = s.holderType === "IMPORTER" ? `imp:${s.importerId}` : `dist:${s.distributorId}`;
@@ -81,10 +82,10 @@ export async function getInventoryPipeline(): Promise<InventoryPipeline> {
     }
     for (const [, h] of latestByHolder) {
       if (h.holderType === "IMPORTER") {
-        lsi9l += h.cases;
+        lsiCases += h.cases;
         if (!lsiAsOf || h.period > lsiAsOf) lsiAsOf = h.period;
       } else {
-        dist9l += h.cases;
+        distCases += h.cases;
         if (!distAsOf || h.period > distAsOf) distAsOf = h.period;
         if (h.distributorId) {
           const d = distributors.find((x) => x.id === h.distributorId);
@@ -116,7 +117,7 @@ export async function getInventoryPipeline(): Promise<InventoryPipeline> {
     }
     const recent = [...byPeriod.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 3);
     const velocity = recent.length > 0 ? recent.reduce((a, [, c]) => a + c, 0) / recent.length : 0;
-    const market9l = lsi9l + dist9l;
+    const marketCases = lsiCases + distCases;
 
     return {
       productId: p.id,
@@ -124,23 +125,23 @@ export async function getInventoryPipeline(): Promise<InventoryPipeline> {
       name: p.name,
       tier: p.tier,
       ownBottles,
-      own9l,
-      lsi9l,
-      dist9l,
-      total9l: own9l + market9l,
+      ownCases,
+      lsiCases,
+      distCases,
+      totalCases: ownCases + marketCases,
       velocityCasesPerMonth: velocity,
-      weeksOfSupply: velocity > 0 ? (market9l / velocity) * 4.33 : null,
+      weeksOfSupply: velocity > 0 ? (marketCases / velocity) * 4.33 : null,
     };
   });
 
   const totals = rows.reduce(
     (a, r) => ({
-      own9l: a.own9l + r.own9l,
-      lsi9l: a.lsi9l + r.lsi9l,
-      dist9l: a.dist9l + r.dist9l,
-      total9l: a.total9l + r.total9l,
+      ownCases: a.ownCases + r.ownCases,
+      lsiCases: a.lsiCases + r.lsiCases,
+      distCases: a.distCases + r.distCases,
+      totalCases: a.totalCases + r.totalCases,
     }),
-    { own9l: 0, lsi9l: 0, dist9l: 0, total9l: 0 }
+    { ownCases: 0, lsiCases: 0, distCases: 0, totalCases: 0 }
   );
 
   holdings.sort((a, b) => a.distributor.localeCompare(b.distributor) || a.sku.localeCompare(b.sku));

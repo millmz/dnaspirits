@@ -94,7 +94,7 @@ export async function stageDocument(
     facts =
       `LSI Depletions & Shipments workbook for ${period || "an unknown month"}. ` +
       `${report.importerStock.length} importer stock rows, ` +
-      `${report.distributorStock.length} distributor stock rows (physical cases → 9L on import).`;
+      `${report.distributorStock.length} distributor stock rows (physical cases).`;
     if (report.warnings.length) facts += ` Parser notes: ${report.warnings.slice(0, 4).join("; ")}.`;
   } else if (kind === "QB_PNL") {
     const parsed = parseQbPnl(buf);

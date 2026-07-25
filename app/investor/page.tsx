@@ -102,7 +102,7 @@ export default async function InvestorPage() {
         {stat(
           `Depletions · ${year} YTD`,
           `${num(Math.round(ytd.ytdCases))} cases`,
-          ytd.growthPct === null ? "9L cases to retail" : `${ytd.growthPct >= 0 ? "+" : ""}${num(Math.round(ytd.growthPct))}% vs last year`
+          ytd.growthPct === null ? "cases to retail" : `${ytd.growthPct >= 0 ? "+" : ""}${num(Math.round(ytd.growthPct))}% vs last year`
         )}
         {stat("Velocity", `${num(Math.round(velocity * 10) / 10)}/mo`, "3-month average")}
         {stat("Channel supply", weeks === null ? "—" : `${weeks} weeks`, `${num(Math.round(channelTotal))} cases in market`)}
@@ -118,13 +118,13 @@ export default async function InvestorPage() {
 
       <section className="mt-6">
         <div className="brand-heading mb-2 text-xs font-medium tracking-widest text-slate">
-          SHIPMENTS IN VS DEPLETIONS OUT · LAST 12 MONTHS · 9L CASES
+          SHIPMENTS IN VS DEPLETIONS OUT · LAST 12 MONTHS · CASES
         </div>
         <BarChart
           groups={last12.map((m) => m.period)}
           series={[
-            { label: "9L cases shipped", color: "#231F20", values: last12.map((m) => Math.round(m.shipment9lCases * 10) / 10) },
-            { label: "9L cases depleted", color: "#018769", values: last12.map((m) => m.depletionCases) },
+            { label: "Cases shipped", color: "#231F20", values: last12.map((m) => m.shipmentCases) },
+            { label: "Cases depleted", color: "#018769", values: last12.map((m) => m.depletionCases) },
           ]}
           height={160}
         />

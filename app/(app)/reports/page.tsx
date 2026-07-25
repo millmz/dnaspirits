@@ -112,7 +112,7 @@ export default async function ReportsPage() {
               tone="agave"
               hint={
                 ytd.growthPct === null
-                  ? "9L cases sold to retail"
+                  ? "cases sold to retail"
                   : `${ytd.growthPct >= 0 ? "+" : ""}${num(Math.round(ytd.growthPct))}% vs same months last year`
               }
             />
@@ -134,17 +134,17 @@ export default async function ReportsPage() {
             />
           </div>
 
-          <Card title="Shipments in vs depletions out (9L cases)">
+          <Card title="Shipments in vs depletions out (cases)">
             <BarChart
               groups={last12.map((m) => m.period)}
               series={[
-                { label: "9L cases shipped ex-works", color: "#231F20", values: last12.map((m) => Math.round(m.shipment9lCases * 10) / 10) },
-                { label: "9L cases depleted at retail", color: "#018769", values: last12.map((m) => m.depletionCases) },
+                { label: "Cases shipped ex-works", color: "#231F20", values: last12.map((m) => m.shipmentCases) },
+                { label: "Cases depleted at retail", color: "#018769", values: last12.map((m) => m.depletionCases) },
               ]}
             />
             <p className="mt-3 text-xs leading-relaxed text-slate/70">
-              Both series are 9L-equivalent cases, so they compare like-for-like (a physical 6×700ml case
-              is 0.47 of a 9L case). Healthy months deplete roughly what you ship. Shipping far ahead of
+              Both series are physical cases, so they compare like-for-like. Healthy months deplete
+              roughly what you ship. Shipping far ahead of
               depletions loads the channel (watch weeks of supply climb); depleting ahead of shipments
               drains it and a reorder from your importer is coming.
             </p>

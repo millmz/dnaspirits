@@ -46,7 +46,7 @@ export default async function ChannelPage({
         <Callout tone="green">
           Imported the {lsiPeriod} LSI inventory report: importer stock for {lsiImporter} product
           {lsiImporter === "1" ? "" : "s"} plus {lsiDist} distributor stock position
-          {lsiDist === "1" ? "" : "s"} (physical cases converted to 9L). Re-uploading a report
+          {lsiDist === "1" ? "" : "s"} (physical cases). Re-uploading a report
           for the same month replaces it.
           {skipped && <div className="mt-1 text-burnt">Notes: {skipped}</div>}
         </Callout>
@@ -157,7 +157,7 @@ export default async function ChannelPage({
               <SubmitButton>Import inventory</SubmitButton>
               <div className="text-xs leading-relaxed text-slate/80">
                 Reads the &ldquo;LSI Inventory&rdquo; and &ldquo;Distributor Inventory&rdquo; sheets as channel
-                stock (physical cases → 9L). Distributors auto-create with their real names.
+                stock in physical cases. Distributors auto-create with their real names.
                 Depletion sheets are skipped — the commercial report is the depletion source.
               </div>
             </form>
@@ -200,7 +200,7 @@ export default async function ChannelPage({
                 <Field label="Period (YYYY-MM)">
                   <input name="period" defaultValue={currentPeriod()} required className={inputCls} />
                 </Field>
-                <Field label="Cases on hand (9L equivalents)">
+                <Field label="Cases on hand (physical)">
                   <input name="cases" required placeholder="120" className={inputCls} />
                 </Field>
               </div>

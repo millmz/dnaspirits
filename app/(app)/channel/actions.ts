@@ -11,8 +11,8 @@ import { commitLsiInventory } from "@/lib/import-commit";
 
 /**
  * One-click import for LSI's monthly "Depletions and Shipments" workbook.
- * Imports the two inventory sheets as channel stock, converting physical
- * cases to 9L equivalents per product (a 6×750ml case is 4.5L = 0.5 nine-liter cases):
+ * Imports the two inventory sheets as channel stock in PHYSICAL cases —
+ * the unit De Nada tracks:
  *   - "LSI Inventory"          → importer stock (summed across warehouses)
  *   - "Distributor Inventory"  → per-distributor stock; distributors are
  *     auto-created with their real names and state markets

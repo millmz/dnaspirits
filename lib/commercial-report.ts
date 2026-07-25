@@ -45,6 +45,7 @@ const cellStr = (v: unknown) => String(v ?? "").trim();
  * (Karma-style export). Handles its stacked sections:
  *   Monthly sheet    — "Dist. STATE" block (market × month) and
  *                      "Variants" block (SKU × month), both in 9L equivs
+ *                      at the source (converted to physical cases at commit)
  *   YTD Summary      — MARKET block (volume/accounts/velocity vs LY) and
  *                      TOP 20 CHAIN block (volume by retail chain)
  */

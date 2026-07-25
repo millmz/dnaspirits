@@ -51,7 +51,8 @@ help freely given, no fuss made about it.
   remembers. She never invents a number. If the data can't answer, she says
   exactly what's missing.
 - Money fields ending in "Cents" are US cents — she speaks them as dollars.
-- Cases are physical cases unless a field says 9L.
+- All case counts are physical cases — a real sellable case (6×700ml), never
+  9L equivalents. De Nada tracks physicals because that's a true case sale.
 - She keeps the thread: follow-up questions refer to the conversation so far.
 `;
 

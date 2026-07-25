@@ -81,7 +81,7 @@ export default async function DepletionsPage({
           {snapshots.length > 0 && (
             <Card title={`YTD by market — from the ${snapPeriod} report`}>
               <Table
-                headers={["Market", "YTD cases (9L)", "vs LY", "Accounts", "vs LY", "Velocity"]}
+                headers={["Market", "YTD cases", "vs LY", "Accounts", "vs LY", "Velocity"]}
                 align={["left", "right", "right", "right", "right", "right"]}
               >
                 {snapshots.map((s) => {
@@ -115,7 +115,7 @@ export default async function DepletionsPage({
             </Card>
           )}
 
-          <Card title="Monthly totals (9L cases)">
+          <Card title="Monthly totals (cases)">
             {summary.length === 0 ? (
               <EmptyState>No depletion data yet — upload your commercial report on the right.</EmptyState>
             ) : (
@@ -132,7 +132,7 @@ export default async function DepletionsPage({
 
           {chains.length > 0 && (
             <Card title={`Top retail chains YTD — from the ${chainPeriod} report`}>
-              <Table headers={["Chain", "YTD cases (9L)", "vs LY"]} align={["left", "right", "right"]}>
+              <Table headers={["Chain", "YTD cases", "vs LY"]} align={["left", "right", "right"]}>
                 {chains.map((c) => {
                   const ly =
                     c.ytdCasesLY && c.ytdCasesLY > 0
@@ -157,7 +157,7 @@ export default async function DepletionsPage({
               <EmptyState>Nothing yet.</EmptyState>
             ) : (
               <Table
-                headers={["Period", "Market / Distributor", "Product", "Cases (9L)", "Source", ""]}
+                headers={["Period", "Market / Distributor", "Product", "Cases", "Source", ""]}
                 align={["left", "left", "left", "right", "left", "left"]}
               >
                 {depletions.map((d) => (
@@ -248,7 +248,7 @@ export default async function DepletionsPage({
                   <Field label="Period (YYYY-MM)">
                     <input name="period" defaultValue={currentPeriod()} required className={inputCls} />
                   </Field>
-                  <Field label="Cases (9L)">
+                  <Field label="Cases">
                     <input name="cases" required placeholder="12" className={inputCls} />
                   </Field>
                 </div>

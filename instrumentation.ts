@@ -15,6 +15,16 @@ export async function register() {
   Object.seal(Object.prototype);
   Object.seal(Array.prototype);
 
+  // one-time unit switch: convert stored 9L-equivalent rows to physical cases
+  // (flag-guarded — runs once per database, no-ops on fresh installs)
+  try {
+    const { migrateToPhysicalCases } = await import("./lib/units");
+    const migrated = await migrateToPhysicalCases();
+    if (migrated) console.log(`units: ${migrated}`);
+  } catch (e) {
+    console.error("units: physical-cases migration failed:", e);
+  }
+
   // sweep stale chunked-upload temp files (abandoned composer uploads)
   const { cleanupUploadTmp } = await import("./lib/media");
   const sweep = () => {

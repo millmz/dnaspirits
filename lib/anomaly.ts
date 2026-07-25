@@ -96,16 +96,15 @@ export async function analyzeLsiInventory(
       _sum: { cases: true },
     });
     const priorCases = priorTotal._sum.cases ?? 0;
-    // convert this report to 9L for a like-for-like compare (approx 0.4665 factor for 700ml×6)
-    const approx9L = totalPhys * 0.4665;
-    if (priorCases >= 50 && approx9L < priorCases * 0.5) {
+    // both sides are physical cases — compare directly
+    if (priorCases >= 50 && totalPhys < priorCases * 0.5) {
       flags.push(
-        `Channel stock (~${num(Math.round(approx9L))} 9L cases) is less than half the prior report's ${num(Math.round(priorCases))} — verify the workbook is complete.`
+        `Channel stock (${num(Math.round(totalPhys))} cases) is less than half the prior report's ${num(Math.round(priorCases))} — verify the workbook is complete.`
       );
     }
-    if (priorCases >= 50 && approx9L > priorCases * 2) {
+    if (priorCases >= 50 && totalPhys > priorCases * 2) {
       flags.push(
-        `Channel stock (~${num(Math.round(approx9L))} 9L cases) more than doubled vs the prior report's ${num(Math.round(priorCases))} — large restock or a data issue.`
+        `Channel stock (${num(Math.round(totalPhys))} cases) more than doubled vs the prior report's ${num(Math.round(priorCases))} — large restock or a data issue.`
       );
     }
   }

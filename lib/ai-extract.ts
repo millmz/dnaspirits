@@ -77,7 +77,7 @@ const RECORD_SCHEMA = {
         "DEPLETION_REPORT: ON_PREMISE|OFF_PREMISE|UNKNOWN. Otherwise empty.",
     },
     amountCents: { type: "integer", description: "Total money amount in USD cents (convert currencies, note the rate in notes), 0 if n/a" },
-    qty: { type: "number", description: "Quantity: units, 9L cases, or bottles depending on category. PRODUCTION_RUN lines matched to a product: whole BOTTLES (convert liters via the product's sizeMl). 0 if n/a" },
+    qty: { type: "number", description: "Quantity: units, PHYSICAL cases, or bottles depending on category (never 9L equivalents — convert if the document uses them). PRODUCTION_RUN lines matched to a product: whole BOTTLES (convert liters via the product's sizeMl). 0 if n/a" },
     unitCostCents: { type: "integer", description: "Per-unit cost in USD cents, 0 if n/a" },
     matchedId: { type: "string", description: "EXACT id from the catalog below when this line maps to an existing component/product, else empty" },
     notes: { type: "string", description: "Anything the reviewer should know about this line" },

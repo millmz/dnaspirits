@@ -103,7 +103,7 @@ export async function buildContext(): Promise<string> {
       statesCount: stateRows.length,
       asOfReport: latestSnap?.period ?? null,
       states: stateRows.map((s) => ({
-        state: s.market, ytdCases9L: s.ytdCases, ytdCasesLY: s.ytdCasesLY,
+        state: s.market, ytdCases: s.ytdCases, ytdCasesLY: s.ytdCasesLY,
         accountsBuying: s.accounts, accountsLY: s.accountsLY, velocity: s.velocity,
       })),
       distributors: distributors.map((d) => ({
@@ -112,17 +112,17 @@ export async function buildContext(): Promise<string> {
     },
     topRetailChainsYtd: chainPeriod
       ? latestChains.filter((c) => c.period === chainPeriod).slice(0, 10)
-          .map((c) => ({ chain: c.chain, ytdCases9L: c.ytdCases, ytdCasesLY: c.ytdCasesLY }))
+          .map((c) => ({ chain: c.chain, ytdCases: c.ytdCases, ytdCasesLY: c.ytdCasesLY }))
       : [],
     inventoryPipeline_threeTiers: pipeline
       ? {
-          explainer: "own = our warehouses; lsi = at the importer; dist = at distributors. All 9L cases.",
+          explainer: "own = our warehouses; lsi = at the importer; dist = at distributors. All PHYSICAL cases.",
           totals: pipeline.totals,
           lsiReportMonth: pipeline.lsiAsOf,
           distributorReportMonth: pipeline.distAsOf,
           bySku: pipeline.rows.map((r) => ({
-            sku: r.sku, own9l: Math.round(r.own9l * 10) / 10, ownBottles: r.ownBottles,
-            lsi9l: r.lsi9l, dist9l: r.dist9l, velocityCasesPerMonth: Math.round(r.velocityCasesPerMonth * 10) / 10,
+            sku: r.sku, ownCases: Math.round(r.ownCases * 10) / 10, ownBottles: r.ownBottles,
+            lsiCases: r.lsiCases, distCases: r.distCases, velocityCasesPerMonth: Math.round(r.velocityCasesPerMonth * 10) / 10,
             weeksInMarket: r.weeksOfSupply === null ? null : Math.round(r.weeksOfSupply),
           })),
         }
@@ -387,12 +387,12 @@ export async function getDataSection(section: string): Promise<string> {
       db.chainVolume.findMany({ orderBy: [{ period: "desc" }, { ytdCases: "desc" }], take: 80 }),
     ]);
     return JSON.stringify({
-      note: "YTD trade stats per state per report month (9L cases), plus retail chain YTD volumes.",
+      note: "YTD trade stats per state per report month (physical cases), plus retail chain YTD volumes.",
       stateSnapshots: snaps.map((s) => ({
-        reportMonth: s.period, state: s.market, ytdCases9L: s.ytdCases, ytdCasesLY: s.ytdCasesLY,
+        reportMonth: s.period, state: s.market, ytdCases: s.ytdCases, ytdCasesLY: s.ytdCasesLY,
         accountsBuying: s.accounts, accountsLY: s.accountsLY, velocity: s.velocity,
       })),
-      chains: chains.map((c) => ({ reportMonth: c.period, chain: c.chain, ytdCases9L: c.ytdCases, ytdCasesLY: c.ytdCasesLY })),
+      chains: chains.map((c) => ({ reportMonth: c.period, chain: c.chain, ytdCases: c.ytdCases, ytdCasesLY: c.ytdCasesLY })),
     });
   }
   if (section === "distributors_and_holdings") {
@@ -403,7 +403,7 @@ export async function getDataSection(section: string): Promise<string> {
     return JSON.stringify({
       distributors: distributors.map((d) => ({ name: d.name, state: d.market || null, importer: d.importer.name, notes: d.notes || undefined })),
       stockByDistributor: pipeline.distributorHoldings.map((h) => ({
-        distributor: h.distributor, state: h.market, sku: h.sku, cases9L: h.cases, reportMonth: h.period,
+        distributor: h.distributor, state: h.market, sku: h.sku, cases: h.cases, reportMonth: h.period,
       })),
     });
   }
@@ -467,13 +467,13 @@ export async function getDataSection(section: string): Promise<string> {
     const distributors = await db.distributor.findMany();
     const dName = new Map(distributors.map((d) => [d.id, `${d.name}${d.market ? ` (${d.market})` : ""}`]));
     return JSON.stringify({
-      note: "Cases are 9L equivalents. Monthly totals per distributor/market, plus recent account-level rows where reported.",
+      note: "Cases are physical cases. Monthly totals per distributor/market, plus recent account-level rows where reported.",
       monthlyByDistributor: byMarket.map((r) => ({
-        period: r.period, distributor: dName.get(r.distributorId) ?? r.distributorId, cases9L: r._sum.cases ?? 0,
+        period: r.period, distributor: dName.get(r.distributorId) ?? r.distributorId, cases: r._sum.cases ?? 0,
       })),
       accountLevel: accounts.map((a) => ({
         period: a.period, account: a.accountName, type: a.accountType,
-        distributor: dName.get(a.distributorId) ?? "", sku: a.product?.sku ?? null, cases9L: a.cases,
+        distributor: dName.get(a.distributorId) ?? "", sku: a.product?.sku ?? null, cases: a.cases,
       })),
     });
   }
@@ -602,8 +602,9 @@ async function runTool(name: string, input: Record<string, unknown>, taughtBy: s
 const OPERATING =
   "Operating rules (always in force): answer using ONLY the live data snapshot, your get_data " +
   "sections, your core knowledge, your recalled memories, and the conversation so far. Money values " +
-  "ending in 'Cents' are US cents — present them as dollars. Cases are physical cases unless a field " +
-  "says 9L. BEFORE ever saying you don't have data or can't answer, check whether one of your " +
+  "ending in 'Cents' are US cents — present them as dollars. ALL case counts are PHYSICAL cases — " +
+  "a real sellable case (De Nada's is 6×700ml), never 9L equivalents; the platform converts 9L " +
+  "sources to physical at import. BEFORE ever saying you don't have data or can't answer, check whether one of your " +
   "get_data sections covers it and call it — the snapshot is a summary, not your whole reach. Only " +
   "after the snapshot AND the relevant get_data section both come up empty do you say exactly what's " +
   "missing — and then point to the page where the founders can load it. Never guess or invent " +

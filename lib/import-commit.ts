@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { matchProduct } from "./product-match";
 import { bomRequirements, getComponentStock } from "./inventory";
+import { brandCaseMl, physFrom9L } from "./units";
 import { money, num } from "./format";
 import type { CommercialReport } from "./commercial-report";
 import type { LsiInventoryReport } from "./lsi-inventory";
@@ -22,12 +23,21 @@ export type CommercialCommit = {
   warnings: string[];
 };
 
-/** Commits a parsed commercial report; replaces report-sourced rows for its months. */
+/**
+ * Commits a parsed commercial report; replaces report-sourced rows for its
+ * months. The report arrives in 9L equivalents (industry standard) but De
+ * Nada tracks PHYSICAL cases — variant rows convert exactly per product,
+ * brand-level rows (markets, YTD snapshots, chains) via the brand's standard
+ * case.
+ */
 export async function commitCommercialReport(
   report: CommercialReport,
   importerId: string
 ): Promise<CommercialCommit> {
   const warnings = [...report.warnings];
+  const brandMl = await brandCaseMl();
+  const brandF = 9000 / brandMl; // 9L cases → physical cases, brand-level
+  const r2 = (n: number) => Math.round(n * 100) / 100;
 
   // markets → distributors (auto-create by state code)
   const existing = await db.distributor.findMany({ where: { importerId } });
@@ -66,7 +76,7 @@ export async function commitCommercialReport(
         distributorId: byMarket.get(d.market.toLowerCase())!,
         productId: null,
         period: d.period,
-        cases: d.cases,
+        cases: r2(d.cases * brandF),
         source: "REPORT",
       })),
     }),
@@ -74,12 +84,15 @@ export async function commitCommercialReport(
     db.skuDepletion.createMany({
       data: report.variants
         .filter((v) => productForVariant.has(v.variant))
-        .map((v) => ({
-          productId: productForVariant.get(v.variant)!,
-          period: v.period,
-          cases: v.cases,
-          source: "REPORT",
-        })),
+        .map((v) => {
+          const p = products.find((x) => x.id === productForVariant.get(v.variant))!;
+          return {
+            productId: p.id,
+            period: v.period,
+            cases: r2(physFrom9L(v.cases, p)),
+            source: "REPORT",
+          };
+        }),
     }),
     db.marketSnapshot.deleteMany({ where: { importerId, period: report.reportPeriod } }),
     db.marketSnapshot.createMany({
@@ -87,11 +100,11 @@ export async function commitCommercialReport(
         importerId,
         period: report.reportPeriod,
         market: s.market,
-        ytdCases: s.ytdCases,
-        ytdCasesLY: s.ytdCasesLY,
+        ytdCases: r2(s.ytdCases * brandF),
+        ytdCasesLY: s.ytdCasesLY === null ? null : r2(s.ytdCasesLY * brandF),
         accounts: s.accounts,
         accountsLY: s.accountsLY,
-        velocity: s.velocity,
+        velocity: s.velocity === null ? null : r2(s.velocity * brandF),
       })),
     }),
     db.chainVolume.deleteMany({ where: { importerId, period: report.reportPeriod } }),
@@ -100,8 +113,8 @@ export async function commitCommercialReport(
         importerId,
         period: report.reportPeriod,
         chain: c.chain,
-        ytdCases: c.ytdCases,
-        ytdCasesLY: c.ytdCasesLY,
+        ytdCases: r2(c.ytdCases * brandF),
+        ytdCasesLY: c.ytdCasesLY === null ? null : r2(c.ytdCasesLY * brandF),
       })),
     }),
   ]);
@@ -124,7 +137,7 @@ export type LsiCommit = {
   warnings: string[];
 };
 
-/** Commits a parsed LSI inventory workbook as channel stock (phys → 9L). */
+/** Commits a parsed LSI inventory workbook as channel stock, in physical cases. */
 export async function commitLsiInventory(
   report: LsiInventoryReport,
   importerId: string,
@@ -143,9 +156,6 @@ export async function commitLsiInventory(
     if (note) matchNotes.add(note);
     return product;
   };
-  const to9L = (physCases: number, p: { bottlesPerCase: number; sizeMl: number }) =>
-    (physCases * p.bottlesPerCase * p.sizeMl) / 9000;
-
   const importerByProduct = new Map<string, number>();
   for (const row of report.importerStock) {
     const p = productFor(row.itemName);
@@ -153,7 +163,8 @@ export async function commitLsiInventory(
       warnings.push(`LSI item "${row.itemName}" didn't match a product — skipped.`);
       continue;
     }
-    importerByProduct.set(p.id, (importerByProduct.get(p.id) ?? 0) + to9L(row.physCases, p));
+    // the workbook already reports physical cases — store them as-is
+    importerByProduct.set(p.id, (importerByProduct.get(p.id) ?? 0) + row.physCases);
   }
 
   const existing = await db.distributor.findMany({ where: { importerId } });
@@ -174,7 +185,7 @@ export async function commitLsiInventory(
       byName.set(row.distributor.toLowerCase(), distId);
     }
     const key = `${distId}|${p.id}`;
-    distByProduct.set(key, (distByProduct.get(key) ?? 0) + to9L(row.physCases, p));
+    distByProduct.set(key, (distByProduct.get(key) ?? 0) + row.physCases);
   }
 
   const distributorIds = [...byName.values()];

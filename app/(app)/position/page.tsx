@@ -51,21 +51,21 @@ export default async function PositionPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <div className="brand-heading text-[11px] tracking-widest text-slate">Tier 1 · Our stock</div>
-          <div className="mt-1 text-3xl font-medium text-ink">{cs(totals.own9l)}</div>
-          <div className="text-xs text-slate/70">9L cases bottled in our warehouses</div>
+          <div className="mt-1 text-3xl font-medium text-ink">{cs(totals.ownCases)}</div>
+          <div className="text-xs text-slate/70">cases bottled in our warehouses</div>
         </Card>
         <Card>
           <div className="brand-heading text-[11px] tracking-widest text-slate">Tier 2 · At {lsiName}</div>
-          <div className="mt-1 text-3xl font-medium text-ink">{cs(totals.lsi9l)}</div>
+          <div className="mt-1 text-3xl font-medium text-ink">{cs(totals.lsiCases)}</div>
           <div className="text-xs text-slate/70">
-            9L cases at the importer{lsiAsOf ? ` · reported ${lsiAsOf}` : " · no report yet"}
+            cases at the importer{lsiAsOf ? ` · reported ${lsiAsOf}` : " · no report yet"}
           </div>
         </Card>
         <Card>
           <div className="brand-heading text-[11px] tracking-widest text-slate">Tier 3 · At distributors</div>
-          <div className="mt-1 text-3xl font-medium text-ink">{cs(totals.dist9l)}</div>
+          <div className="mt-1 text-3xl font-medium text-ink">{cs(totals.distCases)}</div>
           <div className="text-xs text-slate/70">
-            9L cases in the field{distAsOf ? ` · reported ${distAsOf}` : " · no report yet"}
+            cases in the field{distAsOf ? ` · reported ${distAsOf}` : " · no report yet"}
           </div>
         </Card>
       </div>
@@ -96,12 +96,12 @@ export default async function PositionPage() {
                 </Td>
                 <Td><TierBadge tier={r.tier} /></Td>
                 <Td right>
-                  {cs(r.own9l)}
+                  {cs(r.ownCases)}
                   <span className="ml-1 text-[10px] text-slate/60">({num(r.ownBottles)} btl)</span>
                 </Td>
-                <Td right>{cs(r.lsi9l)}</Td>
-                <Td right>{cs(r.dist9l)}</Td>
-                <Td right className="font-medium">{cs(r.total9l)}</Td>
+                <Td right>{cs(r.lsiCases)}</Td>
+                <Td right>{cs(r.distCases)}</Td>
+                <Td right className="font-medium">{cs(r.totalCases)}</Td>
                 <Td right>{r.velocityCasesPerMonth > 0 ? cs(r.velocityCasesPerMonth) : "—"}</Td>
                 <Td right>{r.weeksOfSupply === null ? "—" : num(Math.round(r.weeksOfSupply))}</Td>
                 <Td>
@@ -120,9 +120,10 @@ export default async function PositionPage() {
           </Table>
         )}
         <p className="mt-3 text-xs text-slate/70">
-          All case counts are 9L equivalents so the tiers compare honestly. &ldquo;Weeks in market&rdquo;
-          is {lsiName} + distributor stock against the 3-month average depletion rate — our own
-          warehouse stock isn&apos;t in the market yet, so it stays out of that clock.
+          All case counts are physical cases — a real sellable case, the unit De Nada tracks.
+          &ldquo;Weeks in market&rdquo; is {lsiName} + distributor stock against the 3-month average
+          depletion rate — our own warehouse stock isn&apos;t in the market yet, so it stays out of
+          that clock.
         </p>
       </Card>
 
@@ -136,7 +137,7 @@ export default async function PositionPage() {
               </EmptyState>
             ) : (
               <Table
-                headers={["Distributor", "Market", "SKUs", "Cases (9L)", "As of"]}
+                headers={["Distributor", "Market", "SKUs", "Cases", "As of"]}
                 align={["left", "left", "left", "right", "left"]}
               >
                 {distributorRows.map((d) => (

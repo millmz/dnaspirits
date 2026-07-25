@@ -60,7 +60,7 @@ function periodFromAsOfCell(rows: unknown[][]): string | null {
  *  - "LSI Inventory":          SKU / Item Description / PHYCS / WH Location
  *  - "Distributor Inventory":  Dist. STATE / Distributors / Item Names /
  *                              ... / Current On Hand in Units
- * Quantities are PHYSICAL cases (converted to 9L equivalents at import).
+ * Quantities are PHYSICAL cases — stored as-is (De Nada tracks physicals).
  */
 export function parseLsiInventory(buf: Buffer, filename: string): LsiInventoryReport {
   const wb = XLSX.read(buf, { type: "buffer" });
