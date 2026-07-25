@@ -81,7 +81,10 @@ export async function completeRun(formData: FormData) {
         status: "COMPLETED",
         bottlesProduced,
         bottledDate,
-        totalCostCents: totalCostCents > 0 ? totalCostCents : autoCostCents,
+        // form value wins; else keep a cost that came in with the run (e.g.
+        // an imported distillery invoice); else snapshot today's BOM cost
+        totalCostCents:
+          totalCostCents > 0 ? totalCostCents : run.totalCostCents > 0 ? run.totalCostCents : autoCostCents,
       },
     }),
     db.inventoryMovement.create({

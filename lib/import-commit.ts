@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { matchProduct } from "./product-match";
+import { money, num } from "./format";
 import type { CommercialReport } from "./commercial-report";
 import type { LsiInventoryReport } from "./lsi-inventory";
 
@@ -412,24 +413,69 @@ export async function commitAiExtract(x: AiExtraction, importerId: string | null
   }
 
   if (x.category === "PRODUCTION_RUN") {
-    const r = x.records[0];
-    const product = r?.matchedId ? await db.product.findUnique({ where: { id: r.matchedId } }) : null;
-    const warehouse = await db.warehouse.findFirst();
-    if (!r || !product || !warehouse) return "Couldn't match the production run to a product — add it manually in Production.";
-    let lotCode = r.reference || r.name || `LOT-${docDate.toISOString().slice(0, 10)}`;
-    if (await db.productionRun.findUnique({ where: { lotCode } })) lotCode = `${lotCode}-${Date.now().toString(36)}`;
-    await db.productionRun.create({
-      data: {
-        lotCode,
-        productId: product.id,
-        warehouseId: warehouse.id,
-        status: "PLANNED",
-        startDate: dateOr(r.date, docDate)!,
-        bottlesPlanned: Math.round(r.qty),
-        notes: `Imported from inbox — complete it in Production to add finished goods. ${r.notes}`.trim(),
-      },
-    });
-    return `Created PLANNED production run ${lotCode} (${Math.round(r.qty)} bottles) — complete it in Production to add stock.`;
+    // A distillery invoice/proforma can carry several expressions at once
+    // (blanco + reposado + añejo) plus service lines like bottling. Every
+    // product-matched line becomes its own PLANNED run carrying its invoice
+    // cost; service-line amounts are spread across the runs by bottle count
+    // so the full amount owed lands in finished-goods cost.
+    const warehouses = await db.warehouse.findMany();
+    const warehouse =
+      warehouses.find((w) => /mx|mexico|distiller|jalisco|arandas|tequila/i.test(`${w.name} ${w.location}`)) ??
+      warehouses[0];
+    if (!warehouse) return "No warehouse configured — add one under Production first.";
+
+    const matched: { r: (typeof x.records)[number]; productId: string; bottles: number }[] = [];
+    let serviceCents = 0;
+    const serviceNames: string[] = [];
+    for (const r of x.records) {
+      const product = r.matchedId ? await db.product.findUnique({ where: { id: r.matchedId } }) : null;
+      if (product && r.qty > 0) {
+        matched.push({ r, productId: product.id, bottles: Math.round(r.qty) });
+      } else if (r.amountCents > 0) {
+        serviceCents += r.amountCents;
+        serviceNames.push(r.name);
+      }
+    }
+    if (matched.length === 0)
+      return "Couldn't match the production run to a product — add it manually in Production.";
+
+    const totalBottles = matched.reduce((a, m) => a + m.bottles, 0);
+    const created: string[] = [];
+    let feeAllocated = 0;
+    for (const [i, m] of matched.entries()) {
+      // this line's share of bottling/labor fees, by bottle count — the last
+      // line absorbs rounding so the runs sum to the invoice exactly
+      const feeShare =
+        i === matched.length - 1
+          ? serviceCents - feeAllocated
+          : totalBottles > 0
+            ? Math.round((serviceCents * m.bottles) / totalBottles)
+            : 0;
+      feeAllocated += feeShare;
+      let lotCode = m.r.reference || `${x.reference || "LOT"}-${m.r.name}`.slice(0, 60);
+      if (await db.productionRun.findUnique({ where: { lotCode } }))
+        lotCode = `${lotCode}-${Date.now().toString(36)}`;
+      await db.productionRun.create({
+        data: {
+          lotCode,
+          productId: m.productId,
+          warehouseId: warehouse.id,
+          status: "PLANNED",
+          startDate: dateOr(m.r.date, docDate)!,
+          bottlesPlanned: m.bottles,
+          totalCostCents: m.r.amountCents + feeShare,
+          notes: [
+            `Imported from inbox — complete it in Production to add finished goods.`,
+            feeShare > 0 ? `Includes ${money(feeShare)} allocated from ${serviceNames.join(", ")}.` : "",
+            m.r.notes,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        },
+      });
+      created.push(`${lotCode} (${num(m.bottles)} bottles, ${money(m.r.amountCents + feeShare)})`);
+    }
+    return `Created ${created.length} PLANNED production run${created.length === 1 ? "" : "s"} at ${warehouse.name}: ${created.join("; ")} — complete them in Production to add finished-goods stock.`;
   }
 
   return "Nothing to import from this document.";

@@ -77,7 +77,7 @@ const RECORD_SCHEMA = {
         "DEPLETION_REPORT: ON_PREMISE|OFF_PREMISE|UNKNOWN. Otherwise empty.",
     },
     amountCents: { type: "integer", description: "Total money amount in USD cents (convert currencies, note the rate in notes), 0 if n/a" },
-    qty: { type: "number", description: "Quantity: units, 9L cases, or bottles depending on category. 0 if n/a" },
+    qty: { type: "number", description: "Quantity: units, 9L cases, or bottles depending on category. PRODUCTION_RUN lines matched to a product: whole BOTTLES (convert liters via the product's sizeMl). 0 if n/a" },
     unitCostCents: { type: "integer", description: "Per-unit cost in USD cents, 0 if n/a" },
     matchedId: { type: "string", description: "EXACT id from the catalog below when this line maps to an existing component/product, else empty" },
     notes: { type: "string", description: "Anything the reviewer should know about this line" },
@@ -113,12 +113,20 @@ const SYSTEM =
   "document if present, otherwise leave amounts in the original currency ONLY if clearly flagged in " +
   "notes, preferring 0 with a note over a wrong number. Match counterparties and line items to the " +
   "catalog ids provided when the names clearly correspond; leave matchedId empty when unsure. " +
-  "Category guide: PURCHASE_ORDER = supplier order/invoice for dry goods (bottles, labels, shippers, " +
-  "caps, bulk tequila). EXPENSE = operating cost receipt/invoice not tied to dry-goods stock. " +
-  "CHARGEBACK = importer billback/credit statement. LEGAL_RECORD = permit, license, trademark, " +
-  "certificate, agreement. DEPLETION_REPORT = distributor account-level depletion list. " +
-  "EX_WORKS_SALE = De Nada's own invoice TO the importer. PRODUCTION_RUN = bottling/production " +
-  "report from the distillery. OTHER = nothing importable.";
+  "Category guide: PURCHASE_ORDER = supplier order/invoice for dry goods (empty bottles, labels, " +
+  "shippers, caps) or unbottled bulk liquid bought as a component. EXPENSE = operating cost " +
+  "receipt/invoice not tied to dry-goods stock. CHARGEBACK = importer billback/credit statement. " +
+  "LEGAL_RECORD = permit, license, trademark, certificate, agreement. DEPLETION_REPORT = " +
+  "distributor account-level depletion list. EX_WORKS_SALE = De Nada's own invoice TO the importer. " +
+  "PRODUCTION_RUN = bottling/production report OR a distillery invoice/proforma for finished " +
+  "bottled tequila — if the document has a bottling line or finished-goods quantities, it is a " +
+  "PRODUCTION_RUN, not a purchase order. For PRODUCTION_RUN: one record per expression " +
+  "(blanco/reposado/añejo), matchedId = the corresponding product, and qty MUST be whole BOTTLES — " +
+  "when the document quantifies liquid in liters, convert with the matched product's bottle size " +
+  "(liters ÷ (sizeMl/1000), rounded; e.g. 4,176 L at 700ml = 5,966 bottles) and state the " +
+  "conversion in notes. Service lines (bottling, labor) stay unmatched with their amount so the " +
+  "importer can spread the cost. Put each line's invoice amount in amountCents. " +
+  "OTHER = nothing importable.";
 
 const IMAGE_MIMES: Record<string, "image/jpeg" | "image/png" | "image/gif" | "image/webp"> = {
   jpg: "image/jpeg",
