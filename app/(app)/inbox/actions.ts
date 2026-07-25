@@ -31,8 +31,10 @@ export async function approveImport(formData: FormData) {
   try {
     await approvePending(id);
   } catch (e) {
+    if (e && typeof e === "object" && "digest" in e) throw e; // let redirect() bubble
     console.error("approve failed:", e);
-    redirect("/inbox?err=Import+failed+on+approval");
+    const why = e instanceof Error ? e.message : "Import failed on approval";
+    redirect(`/inbox?err=${encodeURIComponent(why)}`);
   }
   revalidatePath("/inbox");
   revalidatePath("/depletions");

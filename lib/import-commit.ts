@@ -128,6 +128,11 @@ export async function commitLsiInventory(
   importerId: string,
   period: string
 ): Promise<LsiCommit> {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    throw new Error(
+      "No report month detected for this workbook — re-upload it with the month (YYYY-MM) filled in."
+    );
+  }
   const warnings = [...report.warnings];
   const products = await db.product.findMany({ where: { active: true } });
   const matchNotes = new Set<string>();

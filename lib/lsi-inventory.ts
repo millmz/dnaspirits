@@ -21,12 +21,35 @@ const asNum = (v: unknown): number | null => {
 };
 const cellStr = (v: unknown) => String(v ?? "").trim();
 
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
 export function periodFromFilename(name: string): string | null {
   // "De Nada Tequila 04 2026 Depletions..." / "04_2026" / "2026-04"
   let m = name.match(/(?:^|[^0-9])(0[1-9]|1[0-2])[\s_.-]+(20\d{2})(?:[^0-9]|$)/);
   if (m) return `${m[2]}-${m[1]}`;
   m = name.match(/(20\d{2})[\s_.-]+(0[1-9]|1[0-2])(?:[^0-9]|$)/);
   if (m) return `${m[1]}-${m[2]}`;
+  // "JUN26" / "June 2026" / "jun_26"
+  m = name.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s_.'-]*(20\d{2}|\d{2})(?:[^0-9]|$)/i);
+  if (m) {
+    const month = String(MONTHS.indexOf(m[1].toLowerCase()) + 1).padStart(2, "0");
+    const year = m[2].length === 2 ? `20${m[2]}` : m[2];
+    return `${year}-${month}`;
+  }
+  return null;
+}
+
+/** "Quantities and Values As Of 06/30/26" (a cell in LSI's inventory sheet) → "2026-06" */
+function periodFromAsOfCell(rows: unknown[][]): string | null {
+  for (const r of rows.slice(0, 12)) {
+    for (const c of r) {
+      const m = cellStr(c).match(/as of\s+(\d{1,2})\/\d{1,2}\/(\d{2,4})/i);
+      if (m) {
+        const year = m[2].length === 2 ? `20${m[2]}` : m[2];
+        return `${year}-${m[1].padStart(2, "0")}`;
+      }
+    }
+  }
   return null;
 }
 
@@ -46,25 +69,39 @@ export function parseLsiInventory(buf: Buffer, filename: string): LsiInventoryRe
   const distributorStock: DistributorStockRow[] = [];
 
   // ---- LSI (importer) inventory ----
+  // Two known layouts:
+  //   old: SKU / Item Description / PHYCS / WH Location   (qty column named PHYCS)
+  //   new: ...Item_Description / Item__Base_Unit_of_Measure_ ("PHYCS" as a
+  //        data value) / RemainingQty / LocationCode — one row per warehouse
   const lsiName = wb.SheetNames.find((n) => /lsi.*invent|importer.*invent/i.test(n));
+  let asOfPeriod: string | null = null;
   if (lsiName) {
     const rows: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[lsiName], {
       header: 1,
       defval: "",
     });
-    const headerIdx = rows.findIndex((r) => r.some((c) => /phycs|phys/i.test(cellStr(c))));
+    asOfPeriod = periodFromAsOfCell(rows);
+    const isQtyHeader = (c: string) => /remaining[\s_]*qty|phycs|phys\b|^qty$|quantity/i.test(c);
+    const headerIdx = rows.findIndex((r) => {
+      const cells = r.map(cellStr);
+      return (
+        cells.some((c) => /item[\s_]*desc|description/i.test(c)) && cells.some(isQtyHeader)
+      );
+    });
     if (headerIdx !== -1) {
       const header = rows[headerIdx].map(cellStr);
-      const descCol = header.findIndex((c) => /item|description/i.test(c));
-      const qtyCol = header.findIndex((c) => /phycs|phys/i.test(c));
+      const descCol = header.findIndex((c) => /desc/i.test(c));
+      const qtyCol = header.findIndex(isQtyHeader);
       for (const r of rows.slice(headerIdx + 1)) {
         const itemName = cellStr(r[descCol]);
         const physCases = asNum(r[qtyCol]);
-        if (!itemName || physCases === null) continue;
+        if (!itemName || /^total$/i.test(itemName) || physCases === null) continue;
         importerStock.push({ itemName, physCases });
       }
     } else {
-      warnings.push(`Sheet "${lsiName}": no PHYCS column found.`);
+      warnings.push(
+        `Sheet "${lsiName}": couldn't find the item-description and quantity columns.`
+      );
     }
   } else {
     warnings.push('No "LSI Inventory" sheet found.');
@@ -106,7 +143,8 @@ export function parseLsiInventory(buf: Buffer, filename: string): LsiInventoryRe
     warnings.push("Nothing recognizable found — is this LSI's Depletions and Shipments workbook?");
   }
   return {
-    reportPeriod: periodFromFilename(filename),
+    // the "As Of" date inside the sheet is authoritative; the filename is the fallback
+    reportPeriod: asOfPeriod ?? periodFromFilename(filename),
     importerStock,
     distributorStock,
     warnings,
