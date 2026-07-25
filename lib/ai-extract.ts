@@ -124,9 +124,12 @@ const SYSTEM =
   "(blanco/reposado/añejo), matchedId = the corresponding product, and qty MUST be whole BOTTLES — " +
   "when the document quantifies liquid in liters, convert with the matched product's bottle size " +
   "(liters ÷ (sizeMl/1000), rounded; e.g. 4,176 L at 700ml = 5,966 bottles) and state the " +
-  "conversion in notes. Service lines (bottling, labor) stay unmatched with their amount so the " +
-  "importer can spread the cost. Put each line's invoice amount in amountCents. " +
-  "OTHER = nothing importable.";
+  "conversion in notes. When the document shows the stock is ALREADY bottled (an invoiced bottling " +
+  "line, a final/proforma-final invoice for finished stock, bottled quantities) set endDate on each " +
+  "product record to the bottled or document date — those runs post straight into finished-goods " +
+  "stock on approval. Leave endDate empty only for production that hasn't been bottled yet. " +
+  "Service lines (bottling, labor) stay unmatched with their amount so the importer can spread the " +
+  "cost. Put each line's invoice amount in amountCents. OTHER = nothing importable.";
 
 const IMAGE_MIMES: Record<string, "image/jpeg" | "image/png" | "image/gif" | "image/webp"> = {
   jpg: "image/jpeg",

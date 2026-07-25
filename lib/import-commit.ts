@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { matchProduct } from "./product-match";
+import { bomRequirements, getComponentStock } from "./inventory";
 import { money, num } from "./format";
 import type { CommercialReport } from "./commercial-report";
 import type { LsiInventoryReport } from "./lsi-inventory";
@@ -415,9 +416,13 @@ export async function commitAiExtract(x: AiExtraction, importerId: string | null
   if (x.category === "PRODUCTION_RUN") {
     // A distillery invoice/proforma can carry several expressions at once
     // (blanco + reposado + añejo) plus service lines like bottling. Every
-    // product-matched line becomes its own PLANNED run carrying its invoice
-    // cost; service-line amounts are spread across the runs by bottle count
-    // so the full amount owed lands in finished-goods cost.
+    // product-matched line becomes its own run carrying its invoice cost;
+    // service-line amounts are spread across the runs by bottle count so
+    // the full amount owed lands in finished-goods cost.
+    //
+    // A record with endDate (the bottled date) is ALREADY BOTTLED — its run
+    // is committed COMPLETED and the bottles post straight into finished
+    // goods. Records without endDate stay PLANNED for manual completion.
     const warehouses = await db.warehouse.findMany();
     const warehouse =
       warehouses.find((w) => /mx|mexico|distiller|jalisco|arandas|tequila/i.test(`${w.name} ${w.location}`)) ??
@@ -439,8 +444,16 @@ export async function commitAiExtract(x: AiExtraction, importerId: string | null
     if (matched.length === 0)
       return "Couldn't match the production run to a product — add it manually in Production.";
 
+    // dry-goods consumption for bottled runs is best-effort: the bottles
+    // physically exist, so a component shortage must not block the import —
+    // it's surfaced instead so the ledger can be reconciled
+    const componentStock = await getComponentStock();
+    const shortNotes: string[] = [];
+
     const totalBottles = matched.reduce((a, m) => a + m.bottles, 0);
     const created: string[] = [];
+    let bottledCount = 0;
+    let plannedCount = 0;
     let feeAllocated = 0;
     for (const [i, m] of matched.entries()) {
       // this line's share of bottling/labor fees, by bottle count — the last
@@ -455,27 +468,92 @@ export async function commitAiExtract(x: AiExtraction, importerId: string | null
       let lotCode = m.r.reference || `${x.reference || "LOT"}-${m.r.name}`.slice(0, 60);
       if (await db.productionRun.findUnique({ where: { lotCode } }))
         lotCode = `${lotCode}-${Date.now().toString(36)}`;
-      await db.productionRun.create({
-        data: {
-          lotCode,
-          productId: m.productId,
-          warehouseId: warehouse.id,
-          status: "PLANNED",
-          startDate: dateOr(m.r.date, docDate)!,
-          bottlesPlanned: m.bottles,
-          totalCostCents: m.r.amountCents + feeShare,
-          notes: [
-            `Imported from inbox — complete it in Production to add finished goods.`,
-            feeShare > 0 ? `Includes ${money(feeShare)} allocated from ${serviceNames.join(", ")}.` : "",
-            m.r.notes,
-          ]
-            .filter(Boolean)
-            .join(" "),
-        },
-      });
-      created.push(`${lotCode} (${num(m.bottles)} bottles, ${money(m.r.amountCents + feeShare)})`);
+
+      const bottledDate = m.r.endDate ? dateOr(m.r.endDate, docDate) : null;
+      const noteParts = [
+        feeShare > 0 ? `Includes ${money(feeShare)} allocated from ${serviceNames.join(", ")}.` : "",
+        m.r.notes,
+      ];
+
+      if (bottledDate) {
+        // already bottled — commit the run completed and post the stock
+        const reqs = await bomRequirements(m.productId, m.bottles);
+        const consumable = reqs.filter((q) => (componentStock.get(q.componentId) ?? 0) >= q.needed);
+        const short = reqs.filter((q) => (componentStock.get(q.componentId) ?? 0) < q.needed);
+        for (const q of consumable)
+          componentStock.set(q.componentId, (componentStock.get(q.componentId) ?? 0) - q.needed);
+        if (short.length > 0)
+          shortNotes.push(`${lotCode}: ${short.map((s) => s.name).join(", ")} not decremented (not enough on hand)`);
+
+        const run = await db.productionRun.create({
+          data: {
+            lotCode,
+            productId: m.productId,
+            warehouseId: warehouse.id,
+            status: "COMPLETED",
+            startDate: dateOr(m.r.date, docDate)!,
+            bottledDate,
+            bottlesPlanned: m.bottles,
+            bottlesProduced: m.bottles,
+            totalCostCents: m.r.amountCents + feeShare,
+            notes: [`Imported from inbox (already bottled).`, ...noteParts].filter(Boolean).join(" "),
+          },
+        });
+        await db.$transaction([
+          db.inventoryMovement.create({
+            data: {
+              productId: m.productId,
+              warehouseId: warehouse.id,
+              productionRunId: run.id,
+              type: "PRODUCTION",
+              bottles: m.bottles,
+              date: bottledDate,
+              notes: `Lot ${lotCode} bottled (imported invoice ${x.reference || ""})`.trim(),
+            },
+          }),
+          ...consumable.map((q) =>
+            db.componentMovement.create({
+              data: {
+                componentId: q.componentId,
+                type: "PRODUCTION",
+                qty: -q.needed,
+                date: bottledDate,
+                reference: lotCode,
+                notes: `Consumed by lot ${lotCode}`,
+              },
+            })
+          ),
+        ]);
+        bottledCount++;
+        created.push(`${lotCode} (${num(m.bottles)} bottles in stock, ${money(m.r.amountCents + feeShare)})`);
+      } else {
+        await db.productionRun.create({
+          data: {
+            lotCode,
+            productId: m.productId,
+            warehouseId: warehouse.id,
+            status: "PLANNED",
+            startDate: dateOr(m.r.date, docDate)!,
+            bottlesPlanned: m.bottles,
+            totalCostCents: m.r.amountCents + feeShare,
+            notes: [`Imported from inbox — complete it in Production to add finished goods.`, ...noteParts]
+              .filter(Boolean)
+              .join(" "),
+          },
+        });
+        plannedCount++;
+        created.push(`${lotCode} (${num(m.bottles)} bottles planned, ${money(m.r.amountCents + feeShare)})`);
+      }
     }
-    return `Created ${created.length} PLANNED production run${created.length === 1 ? "" : "s"} at ${warehouse.name}: ${created.join("; ")} — complete them in Production to add finished-goods stock.`;
+
+    const parts: string[] = [];
+    if (bottledCount > 0)
+      parts.push(`${bottledCount} COMPLETED run${bottledCount === 1 ? "" : "s"} added to finished goods at ${warehouse.name}`);
+    if (plannedCount > 0)
+      parts.push(`${plannedCount} PLANNED run${plannedCount === 1 ? "" : "s"} awaiting completion in Production`);
+    let result = `${parts.join(" and ")}: ${created.join("; ")}.`;
+    if (shortNotes.length > 0) result += ` Dry goods to reconcile — ${shortNotes.join("; ")}.`;
+    return result;
   }
 
   return "Nothing to import from this document.";

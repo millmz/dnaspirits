@@ -33,7 +33,7 @@ const CATEGORY_TARGET: Record<string, string> = {
   LEGAL_RECORD: "adds entries to the Legal register",
   DEPLETION_REPORT: "adds account-level depletion rows",
   EX_WORKS_SALE: "creates a DRAFT sale — confirm it to move inventory",
-  PRODUCTION_RUN: "creates a PLANNED run — complete it in Production to add stock",
+  PRODUCTION_RUN: "creates production runs — already-bottled stock lands in finished goods now; unbottled runs stay PLANNED",
 };
 
 const money = (cents: number) => (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
