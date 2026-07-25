@@ -5,6 +5,7 @@ import { num, dateStr } from "@/lib/format";
 import { PageHeader, Card, Badge, Field, inputCls, btnCls, btnSecondaryCls, EmptyState, Callout } from "@/components/ui";
 import { uploadForReview, approveImport, rejectImport, deletePending } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
+import { DropZone } from "@/components/drop-zone";
 
 const KIND_LABEL: Record<string, string> = {
   COMMERCIAL_REPORT: "Commercial report",
@@ -217,29 +218,35 @@ export default async function InboxPage({
 
         <div className="space-y-6">
           <Card title="Upload for review">
-            <form action={uploadForReview} className="space-y-3">
-              <Field label="Document (.xlsx, .csv, .pdf, image, .txt)">
-                <input
-                  name="file"
-                  type="file"
-                  accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.gif,.txt"
-                  required
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Importer (for reports & inventory)">
-                <select name="importerId" className={inputCls}>
-                  {importers.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-                </select>
-              </Field>
-              <SubmitButton>Stage for review</SubmitButton>
-              <p className="text-xs leading-relaxed text-slate/70">
+            <DropZone hint="Drop reports or documents here" importerId={importers[0]?.id} />
+            <details className="group mt-4">
+              <summary className="brand-heading cursor-pointer select-none text-xs text-slate/70 [&::-webkit-details-marker]:hidden">
+                + Classic upload (choose importer)
+              </summary>
+              <form action={uploadForReview} className="mt-3 space-y-3">
+                <Field label="Document (.xlsx, .csv, .pdf, image, .txt)">
+                  <input
+                    name="file"
+                    type="file"
+                    accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.gif,.txt"
+                    required
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Importer (for reports & inventory)">
+                  <select name="importerId" className={inputCls}>
+                    {importers.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  </select>
+                </Field>
+                <SubmitButton>Stage for review</SubmitButton>
+              </form>
+            </details>
+            <p className="mt-3 text-xs leading-relaxed text-slate/70">
                 Known reports (commercial report, LSI workbook, QuickBooks P&amp;L) are parsed
                 deterministically. Anything else — supplier invoices, chargeback statements, permits,
                 depletion lists, production reports, receipts — is read by the AI and mapped to the
                 right part of the platform. You review the extracted records, then approve.
               </p>
-            </form>
           </Card>
 
           <Card title="How it works">

@@ -5,6 +5,7 @@ import { num, currentPeriod } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Badge, TierBadge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { createChannelStock, deleteChannelStock, importChannelStock, importLsiInventory } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
+import { DropZone } from "@/components/drop-zone";
 
 export default async function ChannelPage({
   searchParams,
@@ -128,7 +129,19 @@ export default async function ChannelPage({
         </div>
 
         <div className="space-y-6">
-          <Card title="Upload LSI report (.xlsx)">
+          <Card title="Drop the latest report">
+            <DropZone
+              hint="Drop the LSI workbook here"
+              importerId={importers[0]?.id}
+              accept=".xlsx,.xls,.csv"
+              compact
+            />
+            <p className="mt-2 text-xs text-slate/70">
+              Stages in the Review Inbox — approve there and this page updates.
+            </p>
+          </Card>
+
+          <Card title="Upload LSI report (.xlsx)" collapsible>
             <form action={importLsiInventory} className="space-y-3">
               <Field label="Importer">
                 <select name="importerId" className={inputCls}>

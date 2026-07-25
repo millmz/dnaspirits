@@ -37,6 +37,7 @@ export async function approveImport(formData: FormData) {
   revalidatePath("/inbox");
   revalidatePath("/depletions");
   revalidatePath("/channel");
+  revalidatePath("/position");
   revalidatePath("/accounting");
   revalidatePath("/reports");
   revalidatePath("/");

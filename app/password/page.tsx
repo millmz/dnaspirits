@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { btnCls, inputCls, Field } from "@/components/ui";
 import { rotatePassword } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
+import { PasswordInput } from "@/components/password-input";
 
 /** Forced password rotation for temp/admin-set passwords. */
 export default async function PasswordPage({
@@ -35,13 +36,13 @@ export default async function PasswordPage({
           </p>
           {err && <div className="rounded-md bg-burnt/10 px-3 py-2 text-sm text-burnt">{err}</div>}
           <Field label="Temporary password">
-            <input name="current" type="password" required autoFocus className={inputCls} />
+            <PasswordInput name="current" required autoFocus autoComplete="current-password" />
           </Field>
           <Field label="New password">
-            <input name="next" type="password" required minLength={12} className={inputCls} />
+            <PasswordInput name="next" required minLength={12} autoComplete="new-password" />
           </Field>
           <Field label="Confirm new password">
-            <input name="confirm" type="password" required minLength={12} className={inputCls} />
+            <PasswordInput name="confirm" required minLength={12} autoComplete="new-password" />
           </Field>
           <SubmitButton className="w-full">Save &amp; continue</SubmitButton>
         </form>

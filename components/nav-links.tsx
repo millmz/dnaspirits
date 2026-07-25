@@ -28,6 +28,7 @@ const opsSections: { label: string; items: { href: string; label: string }[] }[]
     items: [
       { href: "/partners", label: "Importer & Distributors" },
       { href: "/sales", label: "Ex-Works Sales" },
+      { href: "/position", label: "Inventory Position" },
       { href: "/channel", label: "Channel Inventory" },
       { href: "/depletions", label: "Depletions" },
     ],

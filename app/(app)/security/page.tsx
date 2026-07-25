@@ -4,6 +4,7 @@ import { otpauthUrl } from "@/lib/totp";
 import { PageHeader, Card, Field, inputCls, btnCls, Badge, Callout } from "@/components/ui";
 import { start2fa, cancel2fa, confirm2fa, disable2fa, changeMyPassword, signOutEverywhere } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
+import { PasswordInput } from "@/components/password-input";
 
 /** Personal security settings — reachable by every signed-in user. */
 export default async function SecurityPage({
@@ -111,10 +112,10 @@ export default async function SecurityPage({
         <Card title="Change my password">
           <form action={changeMyPassword} className="space-y-3">
             <Field label="Current password">
-              <input name="current" type="password" required autoComplete="current-password" className={inputCls} />
+              <PasswordInput name="current" required autoComplete="current-password" />
             </Field>
             <Field label="New password (12+ characters)">
-              <input name="next" type="password" required minLength={12} autoComplete="new-password" className={inputCls} />
+              <PasswordInput name="next" required minLength={12} autoComplete="new-password" />
             </Field>
             <SubmitButton>Update password</SubmitButton>
           </form>

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { btnCls, inputCls, Field } from "@/components/ui";
 import { login } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
+import { PasswordInput } from "@/components/password-input";
 
 export default async function LoginPage({
   searchParams,
@@ -41,10 +42,10 @@ export default async function LoginPage({
             </div>
           )}
           <Field label="Email">
-            <input name="email" type="email" required autoFocus className={inputCls} />
+            <input name="email" type="email" required autoFocus autoComplete="email" className={inputCls} />
           </Field>
           <Field label="Password">
-            <input name="password" type="password" required className={inputCls} />
+            <PasswordInput name="password" required autoComplete="current-password" />
           </Field>
           <SubmitButton className="w-full">Sign in</SubmitButton>
         </form>

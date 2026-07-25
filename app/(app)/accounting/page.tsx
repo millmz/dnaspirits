@@ -7,6 +7,7 @@ import { qboConfigured, qboConnection } from "@/lib/qbo";
 import { getCurrentUser } from "@/lib/auth";
 import { createExpense, deleteExpense, importFinancials, syncQbo } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
+import { DropZone } from "@/components/drop-zone";
 
 const CB_LABELS: Record<string, string> = {
   DISTRIBUTOR_PROMO: "Distributor promo / billback",
@@ -283,7 +284,19 @@ export default async function AccountingPage({
         </div>
 
         <div className="space-y-6">
-          <Card title="Upload QuickBooks P&L">
+          <Card title="Drop financial documents">
+            <DropZone
+              hint="Drop the QuickBooks P&L — or any invoice or statement"
+              accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.txt"
+              compact
+            />
+            <p className="mt-2 text-xs text-slate/70">
+              Stages in the Review Inbox — P&amp;Ls, chargeback statements, and receipts are
+              recognized and mapped automatically. Approve there to import.
+            </p>
+          </Card>
+
+          <Card title="Upload QuickBooks P&L" collapsible>
             <form action={importFinancials} className="space-y-3">
               <Field label="P&L export (.xlsx or .csv)">
                 <input name="file" type="file" accept=".xlsx,.xls,.csv,text/csv" required className={inputCls} />

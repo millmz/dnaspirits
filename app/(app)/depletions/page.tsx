@@ -4,6 +4,7 @@ import { num, currentPeriod } from "@/lib/format";
 import { PageHeader, Card, Table, Td, Badge, TierBadge, Field, inputCls, btnCls, EmptyState, Callout } from "@/components/ui";
 import { createDepletion, deleteDepletion, importDepletions, importCommercialReport } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
+import { DropZone } from "@/components/drop-zone";
 
 const pct = (v: number | null) =>
   v === null ? "—" : `${v >= 0 ? "+" : ""}${Math.round(v * 100)}%`;
@@ -184,7 +185,19 @@ export default async function DepletionsPage({
         </div>
 
         <div className="space-y-6">
-          <Card title="Upload commercial report (.xlsx)">
+          <Card title="Drop the latest report">
+            <DropZone
+              hint="Drop the commercial report here"
+              importerId={importers[0]?.id}
+              accept=".xlsx,.xls,.csv"
+              compact
+            />
+            <p className="mt-2 text-xs text-slate/70">
+              Stages in the Review Inbox — approve there and this page updates.
+            </p>
+          </Card>
+
+          <Card title="Upload commercial report (.xlsx)" collapsible>
             <form action={importCommercialReport} className="space-y-3">
               <Field label="Importer">
                 <select name="importerId" className={inputCls}>
