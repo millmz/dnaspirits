@@ -6,7 +6,7 @@ import { listMemories, recallMemories, saveMemory, deleteMemory, MEMORY_TYPES } 
 import { getMonthlyKpis, getAnnualFinancials } from "./kpi";
 import { getOpenReceivables } from "./receivables";
 import { getStock, getComponentStock } from "./inventory";
-import { getMarketPosition } from "./market";
+import { getInventoryPipeline } from "./pipeline";
 import { getNewsBrief, runNewsRefresh } from "./news";
 import { getRecentMentions, runMentionScan } from "./mentions";
 import { getTrendsBrief, runTrendsRefresh } from "./trends";
@@ -28,8 +28,8 @@ import { computeAlerts } from "./alerts";
 const WINDOW_TURNS = 20; // context window per request; full history stays in the DB
 const DRIFT_CHECKPOINT_AT = 14; // turns before the self-audit rides along
 
-async function buildContext(): Promise<string> {
-  const [kpis, ar, stock, componentStock, components, position, openPos, products, recentPosts, followers, news, alerts, upcoming, legalDue, annual, bm, tb] =
+export async function buildContext(): Promise<string> {
+  const [kpis, ar, stock, componentStock, components, openPos, products, recentPosts, followers, news, alerts, upcoming, legalDue, annual, bm, tb] =
     await Promise.all([
       getMonthlyKpis(),
       getOpenReceivables(),
@@ -40,7 +40,6 @@ async function buildContext(): Promise<string> {
         where: { status: "ORDERED" },
         include: { supplier: true, lines: { include: { component: true } } },
       }),
-      getMarketPosition(),
       db.product.findMany({ where: { active: true } }),
       db.socialPost.findMany({
         where: { status: "POSTED" },
@@ -63,7 +62,21 @@ async function buildContext(): Promise<string> {
       getAnnualFinancials().catch(() => []),
       getRecentMentions(8).catch(() => []),
       getTrendsBrief().catch(() => null),
-    ]).then(([k, a, s, cs, c, po, mp, pr, rp, f, n, al, up, ld, an, bm, tb]) => [k, a, s, cs, c, mp, po, pr, rp, f, n, al, up, ld, an, bm, tb] as const);
+    ]).then(([k, a, s, cs, c, po, pr, rp, f, n, al, up, ld, an, bm, tb]) => [k, a, s, cs, c, po, pr, rp, f, n, al, up, ld, an, bm, tb] as const);
+
+  // distribution footprint: which states we're in, through whom, how it's moving
+  const [pipeline, latestSnap, distributors, latestChains, pendingDocs, recentRuns] = await Promise.all([
+    getInventoryPipeline().catch(() => null),
+    db.marketSnapshot.findFirst({ orderBy: { period: "desc" } }),
+    db.distributor.findMany({ include: { importer: true } }),
+    db.chainVolume.findMany({ orderBy: [{ period: "desc" }, { ytdCases: "desc" }], take: 24 }),
+    db.pendingImport.findMany({ where: { status: "PENDING" }, orderBy: { createdAt: "desc" } }),
+    db.productionRun.findMany({ orderBy: { startDate: "desc" }, take: 8, include: { product: true, warehouse: true } }),
+  ]);
+  const stateRows = latestSnap
+    ? await db.marketSnapshot.findMany({ where: { period: latestSnap.period }, orderBy: { ytdCases: "desc" } })
+    : [];
+  const chainPeriod = latestChains[0]?.period;
 
   const ctx = {
     monthlyKpis_last18: kpis.slice(-18),
@@ -86,7 +99,43 @@ async function buildContext(): Promise<string> {
       expected: po.expectedDate?.toISOString().slice(0, 10) ?? null,
       lines: po.lines.map((l) => ({ component: l.component.name, qty: l.qty, unitCostCents: l.unitCostCents })),
     })),
-    marketPosition: position,
+    distributionFootprint: {
+      statesCount: stateRows.length,
+      asOfReport: latestSnap?.period ?? null,
+      states: stateRows.map((s) => ({
+        state: s.market, ytdCases9L: s.ytdCases, ytdCasesLY: s.ytdCasesLY,
+        accountsBuying: s.accounts, accountsLY: s.accountsLY, velocity: s.velocity,
+      })),
+      distributors: distributors.map((d) => ({
+        name: d.name, state: d.market || null, importer: d.importer.name,
+      })),
+    },
+    topRetailChainsYtd: chainPeriod
+      ? latestChains.filter((c) => c.period === chainPeriod).slice(0, 10)
+          .map((c) => ({ chain: c.chain, ytdCases9L: c.ytdCases, ytdCasesLY: c.ytdCasesLY }))
+      : [],
+    inventoryPipeline_threeTiers: pipeline
+      ? {
+          explainer: "own = our warehouses; lsi = at the importer; dist = at distributors. All 9L cases.",
+          totals: pipeline.totals,
+          lsiReportMonth: pipeline.lsiAsOf,
+          distributorReportMonth: pipeline.distAsOf,
+          bySku: pipeline.rows.map((r) => ({
+            sku: r.sku, own9l: Math.round(r.own9l * 10) / 10, ownBottles: r.ownBottles,
+            lsi9l: r.lsi9l, dist9l: r.dist9l, velocityCasesPerMonth: Math.round(r.velocityCasesPerMonth * 10) / 10,
+            weeksInMarket: r.weeksOfSupply === null ? null : Math.round(r.weeksOfSupply),
+          })),
+        }
+      : "pipeline unavailable",
+    recentProductionRuns: recentRuns.map((r) => ({
+      lot: r.lotCode, product: r.product.name, status: r.status,
+      bottles: r.status === "COMPLETED" ? r.bottlesProduced : r.bottlesPlanned,
+      warehouse: r.warehouse.name, totalCostCents: r.totalCostCents,
+      started: r.startDate.toISOString().slice(0, 10),
+    })),
+    documentsAwaitingReview: pendingDocs.map((p) => ({
+      filename: p.filename, kind: p.kind, uploaded: p.createdAt.toISOString().slice(0, 10),
+    })),
     products: products.map((p) => ({
       sku: p.sku, name: p.name, sizeMl: p.sizeMl, bottlesPerCase: p.bottlesPerCase,
       caseCostCents: p.caseCostCents, exWorksCents: p.exWorksCents,
@@ -125,7 +174,11 @@ async function buildContext(): Promise<string> {
 
 const SNAPSHOT_SECTIONS = [
   "monthly KPIs", "receivables & aging", "finished goods stock", "dry goods & reorder points",
-  "open purchase orders", "market position", "product catalog", "recent posts & metrics", "social followers",
+  "open purchase orders",
+  "the distribution footprint (which states we're in, distributor by distributor, with YTD cases, accounts and velocity per state)",
+  "top retail chains YTD", "the three-tier inventory pipeline (our stock, LSI's, distributors')",
+  "recent production runs", "documents waiting in the review inbox",
+  "product catalog", "recent posts & metrics", "social followers",
   "the industry news brief", "current alerts", "upcoming & draft posts", "legal deadlines", "annual financials",
   "recent brand mentions from around the internet", "the short-form content trends brief with recommendations",
 ];
@@ -183,7 +236,12 @@ const TOOLS: Anthropic.Tool[] = [
       properties: {
         section: {
           type: "string",
-          enum: ["influencers_and_press", "cap_table", "legal_register", "content_calendar", "industry_news_full", "brand_mentions", "content_trends_full"],
+          enum: [
+            "influencers_and_press", "cap_table", "legal_register", "content_calendar",
+            "industry_news_full", "brand_mentions", "content_trends_full",
+            "markets_history", "distributors_and_holdings", "sales_invoices",
+            "chargebacks", "expenses_recent", "production_runs", "depletions_recent",
+          ],
         },
       },
       required: ["section"],
@@ -274,7 +332,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-async function getDataSection(section: string): Promise<string> {
+export async function getDataSection(section: string): Promise<string> {
   if (section === "influencers_and_press") {
     const rows = await db.partner.findMany({ orderBy: { updatedAt: "desc" } });
     return JSON.stringify(rows.map((p) => ({
@@ -322,6 +380,102 @@ async function getDataSection(section: string): Promise<string> {
       source: m.source, title: m.title, snippet: m.snippet, author: m.author, url: m.url,
       at: (m.publishedAt ?? m.foundAt).toISOString().slice(0, 10),
     })));
+  }
+  if (section === "markets_history") {
+    const [snaps, chains] = await Promise.all([
+      db.marketSnapshot.findMany({ orderBy: [{ period: "desc" }, { ytdCases: "desc" }], take: 200 }),
+      db.chainVolume.findMany({ orderBy: [{ period: "desc" }, { ytdCases: "desc" }], take: 80 }),
+    ]);
+    return JSON.stringify({
+      note: "YTD trade stats per state per report month (9L cases), plus retail chain YTD volumes.",
+      stateSnapshots: snaps.map((s) => ({
+        reportMonth: s.period, state: s.market, ytdCases9L: s.ytdCases, ytdCasesLY: s.ytdCasesLY,
+        accountsBuying: s.accounts, accountsLY: s.accountsLY, velocity: s.velocity,
+      })),
+      chains: chains.map((c) => ({ reportMonth: c.period, chain: c.chain, ytdCases9L: c.ytdCases, ytdCasesLY: c.ytdCasesLY })),
+    });
+  }
+  if (section === "distributors_and_holdings") {
+    const [distributors, pipeline] = await Promise.all([
+      db.distributor.findMany({ include: { importer: true } }),
+      getInventoryPipeline(),
+    ]);
+    return JSON.stringify({
+      distributors: distributors.map((d) => ({ name: d.name, state: d.market || null, importer: d.importer.name, notes: d.notes || undefined })),
+      stockByDistributor: pipeline.distributorHoldings.map((h) => ({
+        distributor: h.distributor, state: h.market, sku: h.sku, cases9L: h.cases, reportMonth: h.period,
+      })),
+    });
+  }
+  if (section === "sales_invoices") {
+    const sales = await db.exWorksSale.findMany({
+      orderBy: { date: "desc" },
+      take: 30,
+      include: { importer: true, lines: { include: { product: true } }, chargebacks: true },
+    });
+    return JSON.stringify(sales.map((s) => ({
+      date: s.date.toISOString().slice(0, 10), importer: s.importer.name, invoice: s.invoiceNumber,
+      status: s.status, invoiceStatus: s.invoiceStatus, amountPaidCents: s.amountPaidCents,
+      dueDate: s.dueDate?.toISOString().slice(0, 10) ?? null,
+      totalCents: s.lines.reduce((a, l) => a + l.cases * l.pricePerCaseCents, 0),
+      chargebackCreditCents: s.chargebacks.reduce((a, c) => a + c.amountCents, 0),
+      lines: s.lines.map((l) => ({ sku: l.product.sku, cases: l.cases, pricePerCaseCents: l.pricePerCaseCents })),
+    })));
+  }
+  if (section === "chargebacks") {
+    const rows = await db.chargeback.findMany({ orderBy: { date: "desc" }, take: 50, include: { importer: true, sale: true } });
+    const byCategory = new Map<string, number>();
+    for (const c of rows) byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + c.amountCents);
+    return JSON.stringify({
+      note: "Importer billbacks (trade spend). Linked invoice = the credit is applied against it.",
+      totalsByCategoryCents: Object.fromEntries(byCategory),
+      recent: rows.map((c) => ({
+        date: c.date.toISOString().slice(0, 10), category: c.category, amountCents: c.amountCents,
+        importer: c.importer.name, reference: c.reference || null,
+        appliedToInvoice: c.sale?.invoiceNumber || null, notes: c.notes || undefined,
+      })),
+    });
+  }
+  if (section === "expenses_recent") {
+    const rows = await db.expense.findMany({ orderBy: { date: "desc" }, take: 50 });
+    return JSON.stringify(rows.map((e) => ({
+      date: e.date.toISOString().slice(0, 10), vendor: e.vendor, category: e.category,
+      amountCents: e.amountCents, notes: e.notes || undefined,
+    })));
+  }
+  if (section === "production_runs") {
+    const rows = await db.productionRun.findMany({
+      orderBy: { startDate: "desc" }, take: 40, include: { product: true, warehouse: true },
+    });
+    return JSON.stringify(rows.map((r) => ({
+      lot: r.lotCode, product: r.product.name, status: r.status, warehouse: r.warehouse.name,
+      started: r.startDate.toISOString().slice(0, 10),
+      bottled: r.bottledDate?.toISOString().slice(0, 10) ?? null,
+      bottlesPlanned: r.bottlesPlanned, bottlesProduced: r.bottlesProduced,
+      totalCostCents: r.totalCostCents, notes: r.notes || undefined,
+    })));
+  }
+  if (section === "depletions_recent") {
+    const [byMarket, accounts] = await Promise.all([
+      db.depletion.groupBy({ by: ["period", "distributorId"], _sum: { cases: true }, orderBy: { period: "desc" }, take: 120 }),
+      db.depletion.findMany({
+        where: { accountName: { not: "" } },
+        orderBy: [{ period: "desc" }, { cases: "desc" }], take: 60,
+        include: { distributor: true, product: true },
+      }),
+    ]);
+    const distributors = await db.distributor.findMany();
+    const dName = new Map(distributors.map((d) => [d.id, `${d.name}${d.market ? ` (${d.market})` : ""}`]));
+    return JSON.stringify({
+      note: "Cases are 9L equivalents. Monthly totals per distributor/market, plus recent account-level rows where reported.",
+      monthlyByDistributor: byMarket.map((r) => ({
+        period: r.period, distributor: dName.get(r.distributorId) ?? r.distributorId, cases9L: r._sum.cases ?? 0,
+      })),
+      accountLevel: accounts.map((a) => ({
+        period: a.period, account: a.accountName, type: a.accountType,
+        distributor: dName.get(a.distributorId) ?? "", sku: a.product?.sku ?? null, cases9L: a.cases,
+      })),
+    });
   }
   return "Unknown section.";
 }
@@ -446,11 +600,14 @@ async function runTool(name: string, input: Record<string, unknown>, taughtBy: s
 // ---------- prompt assembly (tiers 2, 3, 8, 9, 6) ----------
 
 const OPERATING =
-  "Operating rules (always in force): answer using ONLY the live data snapshot, your core knowledge, " +
-  "your recalled memories, and the conversation so far. Money values ending in 'Cents' are US cents — " +
-  "present them as dollars. Cases are physical cases unless a field says 9L. If none of your sources " +
-  "can answer, say exactly what's missing — never guess or invent figures. Plain conversational text " +
-  "only, no markdown (answers may be read aloud).\n\n" +
+  "Operating rules (always in force): answer using ONLY the live data snapshot, your get_data " +
+  "sections, your core knowledge, your recalled memories, and the conversation so far. Money values " +
+  "ending in 'Cents' are US cents — present them as dollars. Cases are physical cases unless a field " +
+  "says 9L. BEFORE ever saying you don't have data or can't answer, check whether one of your " +
+  "get_data sections covers it and call it — the snapshot is a summary, not your whole reach. Only " +
+  "after the snapshot AND the relevant get_data section both come up empty do you say exactly what's " +
+  "missing — and then point to the page where the founders can load it. Never guess or invent " +
+  "figures. Plain conversational text only, no markdown (answers may be read aloud).\n\n" +
   "Memory discipline: save durable things the founders teach you, their corrections, decisions, and " +
   "stable preferences — check recall first so you don't duplicate. Do NOT save transient task state, " +
   "the current conversation, anything already in the data snapshot, or secrets, credentials, tokens, " +
@@ -470,7 +627,10 @@ function capabilities(): string {
     "What you can actually do (derived from your real configuration — never claim more): " +
     `answer from a live snapshot covering ${SNAPSHOT_SECTIONS.join(", ")}; ` +
     "pull deeper detail on demand with get_data (influencers & press, cap table, legal register, " +
-    "content calendar, full industry news, brand mentions, the full content trends brief), rebuild " +
+    "content calendar, full industry news, brand mentions, the full content trends brief, the full " +
+    "state-by-state market history with retail chains, distributors and their current stock holdings, " +
+    "ex-works sales invoices with payment status, chargebacks by category, recent expenses, " +
+    "production runs and lots, and recent depletions by distributor and account), rebuild " +
     "the industry brief with refresh_industry_news, sweep the internet for fresh De Nada mentions " +
     "with scan_brand_mentions, and rebuild the short-form content trends brief (what's working on " +
     "TikTok/Reels for spirits and CPG brands, crossed with De Nada's own post performance) with " +
