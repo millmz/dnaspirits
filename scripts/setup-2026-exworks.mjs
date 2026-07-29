@@ -141,8 +141,33 @@ async function main() {
     console.log(`2026-exworks: loaded ${inv.invoiceNumber} — $${inv.totalUsd.toFixed(2)} (${inv.lines.length} line${inv.lines.length === 1 ? "" : "s"}).`);
   }
 
-  const total = INVOICES.reduce((a, i) => a + i.totalUsd, 0);
-  console.log(`2026-exworks: done — ledger target for these invoices is $${total.toFixed(2)}.`);
+  // LSI settled the two pre-glass invoices (Jan $61,944 + Mar $57,000 =
+  // $118,944 gross) at $111,689.32 net — per Adam, 2026-07-29. The $7,254.68
+  // difference is trade spend, booked as one unapplied chargeback until LSI's
+  // itemized billback statement allocates it per invoice.
+  const CB_REF = "2026-SETTLEMENT-NET";
+  if (!(await db.chargeback.findFirst({ where: { reference: CB_REF } }))) {
+    await db.chargeback.create({
+      data: {
+        importerId: importer.id,
+        saleId: null,
+        date: new Date("2026-03-31T12:00:00Z"),
+        category: "OTHER",
+        amountCents: usd(7254.68),
+        reference: CB_REF,
+        notes:
+          "Netting on the Jan+Mar 2026 settlements: invoices grossed $118,944.00, LSI remitted $111,689.32. Replace with LSI's itemized billbacks when the statement arrives.",
+      },
+    });
+    console.log("2026-exworks: booked $7,254.68 chargeback (Jan+Mar settled net at $111,689.32).");
+  } else {
+    console.log("2026-exworks: settlement chargeback already booked — skipping.");
+  }
+
+  const gross = INVOICES.reduce((a, i) => a + i.totalUsd, 0);
+  console.log(
+    `2026-exworks: done — gross ex-works revenue $${gross.toFixed(2)}, chargebacks $7,254.68, net $${(gross - 7254.68).toFixed(2)}.`
+  );
 }
 
 main()
