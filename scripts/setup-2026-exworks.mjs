@@ -6,15 +6,17 @@
  *  - LSI-2026-01-06-001 exists in two versions (Reposado 550 vs 96). LSI took
  *    96 due to a miscommunication — the 96-case version ($61,944) is the real
  *    January sale; the balance was bottled and shipped later.
- *  - INV-2026-001 (Blanco glass @ $114.36) supersedes INV-20260415-001
- *    (@ $102) per its own supersession note — only INV-2026-001 loads.
+ *  - INV-2026-001 (Blanco glass @ $114.36) carries a note saying it
+ *    supersedes the $102 invoice, but Adam confirmed (2026-07-29) that
+ *    INV-20260415-001 (aluminum @ $102) and INV-2026-001 (glass @ $114.36)
+ *    are BOTH real, separate sales — both load.
  *
  * Each invoice's lines are verified against its printed total before loading,
  * and an invoice only loads if its number isn't already in the ledger — so
  * manual edits in the app afterwards are never overwritten.
  *
  * Deliberately NO inventory movements: this is a revenue backfill; the cases
- * shipped from production that predates the movement ledger. All four
+ * shipped from production that predates the movement ledger. All five
  * invoices were settled by LSI net of chargebacks (per Adam, 2026-07-29), so
  * they load as PAID — revenue stays gross, chargebacks net against it as
  * trade spend, which is the platform's model. Exact settlement dates weren't
@@ -50,8 +52,16 @@ const INVOICES = [
     date: "2026-04-01",
     totalUsd: 57180.0,
     notes:
-      "Backfilled from the executed invoice (ref PO O001200). Supersedes INV-20260415-001 which billed the same 500 cases at $102 — corrected FOB is $114.36.",
+      "Backfilled from the executed invoice (ref PO O001200). Blanco glass @ $114.36 — a separate sale from the aluminum INV-20260415-001, per Adam despite the invoice's supersession note.",
     lines: [["DN-BLANCO-700", 500, 114.36]],
+  },
+  {
+    invoiceNumber: "INV-20260415-001",
+    date: "2026-04-15",
+    totalUsd: 51000.0,
+    notes:
+      "Backfilled from the executed invoice. Blanco 700ml aluminum-bottle cases @ $102 — confirmed a real sale alongside the glass INV-2026-001.",
+    lines: [["DN-BLANCO-700", 500, 102.0]],
   },
   {
     invoiceNumber: "INV-2026-002",
@@ -141,33 +151,19 @@ async function main() {
     console.log(`2026-exworks: loaded ${inv.invoiceNumber} — $${inv.totalUsd.toFixed(2)} (${inv.lines.length} line${inv.lines.length === 1 ? "" : "s"}).`);
   }
 
-  // LSI settled the two pre-glass invoices (Jan $61,944 + Mar $57,000 =
-  // $118,944 gross) at $111,689.32 net — per Adam, 2026-07-29. The $7,254.68
-  // difference is trade spend, booked as one unapplied chargeback until LSI's
-  // itemized billback statement allocates it per invoice.
-  const CB_REF = "2026-SETTLEMENT-NET";
-  if (!(await db.chargeback.findFirst({ where: { reference: CB_REF } }))) {
-    await db.chargeback.create({
-      data: {
-        importerId: importer.id,
-        saleId: null,
-        date: new Date("2026-03-31T12:00:00Z"),
-        category: "OTHER",
-        amountCents: usd(7254.68),
-        reference: CB_REF,
-        notes:
-          "Netting on the Jan+Mar 2026 settlements: invoices grossed $118,944.00, LSI remitted $111,689.32. Replace with LSI's itemized billbacks when the statement arrives.",
-      },
-    });
-    console.log("2026-exworks: booked $7,254.68 chargeback (Jan+Mar settled net at $111,689.32).");
-  } else {
-    console.log("2026-exworks: settlement chargeback already booked — skipping.");
+  // An earlier revision of this backfill booked a $7,254.68 settlement
+  // chargeback derived from a since-corrected figure — remove it if it's
+  // still sitting there untouched.
+  const stale = await db.chargeback.findFirst({
+    where: { reference: "2026-SETTLEMENT-NET", saleId: null, amountCents: usd(7254.68) },
+  });
+  if (stale) {
+    await db.chargeback.delete({ where: { id: stale.id } });
+    console.log("2026-exworks: removed the superseded $7,254.68 settlement chargeback.");
   }
 
   const gross = INVOICES.reduce((a, i) => a + i.totalUsd, 0);
-  console.log(
-    `2026-exworks: done — gross ex-works revenue $${gross.toFixed(2)}, chargebacks $7,254.68, net $${(gross - 7254.68).toFixed(2)}.`
-  );
+  console.log(`2026-exworks: done — 2026 ex-works revenue $${gross.toFixed(2)} across ${INVOICES.length} invoices.`);
 }
 
 main()
