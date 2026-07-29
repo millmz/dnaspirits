@@ -65,9 +65,7 @@ export default async function InvestorPage() {
   const thisYear = monthly.filter((m) => m.period.startsWith(`${year}-`));
   const grossYtd = thisYear.reduce((a, m) => a + m.shipmentRevenueCents, 0);
   const tradeYtd = thisYear.reduce((a, m) => a + m.chargebackCents, 0);
-  const cogsYtd = thisYear.reduce((a, m) => a + m.cogsCents, 0);
   const netYtd = grossYtd - tradeYtd;
-  const marginYtd = netYtd > 0 ? Math.round(((netYtd - cogsYtd) / netYtd) * 100) : null;
   const categoryNote = catNote || DEFAULT_CATEGORY_NOTE;
   const headlines = (brief?.items ?? []).filter((i) => i.relevance >= 3).slice(0, 3);
 
@@ -109,9 +107,8 @@ export default async function InvestorPage() {
         {stat("Retail accounts", num(accounts), markets.asOf ? `across ${markets.rows.length} states (as of ${markets.asOf})` : "")}
       </section>
 
-      <section className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {stat(`Net revenue · ${year} YTD`, money(netYtd), `${money(grossYtd)} gross − ${money(tradeYtd)} trade spend`)}
-        {stat("Gross margin · YTD", marginYtd === null ? "—" : `${marginYtd}%`, "after COGS & trade spend")}
         {stat("Distribution", `${markets.rows.length} states`, `${num(distributors)} distributor${distributors === 1 ? "" : "s"} via LSI`)}
         {stat("Community", followers ? num(followers.followers) : "—", "Instagram followers")}
       </section>
