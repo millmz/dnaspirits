@@ -14,8 +14,11 @@
  * manual edits in the app afterwards are never overwritten.
  *
  * Deliberately NO inventory movements: this is a revenue backfill; the cases
- * shipped from production that predates the movement ledger. Invoices load as
- * UNPAID — mark the settled ones paid on the Sales page.
+ * shipped from production that predates the movement ledger. All four
+ * invoices were settled by LSI net of chargebacks (per Adam, 2026-07-29), so
+ * they load as PAID — revenue stays gross, chargebacks net against it as
+ * trade spend, which is the platform's model. Exact settlement dates weren't
+ * on file, so paidDate approximates as the NET-30 due date.
  */
 import { PrismaClient } from "@prisma/client";
 
@@ -93,8 +96,23 @@ async function main() {
       console.error(`2026-exworks: ${inv.invoiceNumber} — unknown SKU(s) ${missing.map(([s]) => s).join(", ")} — skipping.`);
       continue;
     }
-    if (await db.exWorksSale.findFirst({ where: { invoiceNumber: inv.invoiceNumber } })) {
-      console.log(`2026-exworks: ${inv.invoiceNumber} already in the ledger — skipping.`);
+    const existing = await db.exWorksSale.findFirst({ where: { invoiceNumber: inv.invoiceNumber } });
+    if (existing) {
+      // an earlier version of this backfill loaded UNPAID — settle it, but
+      // only if the row is still untouched (no payments recorded manually)
+      if (
+        existing.invoiceStatus === "UNPAID" &&
+        existing.amountPaidCents === 0 &&
+        existing.notes.startsWith("Backfilled")
+      ) {
+        await db.exWorksSale.update({
+          where: { id: existing.id },
+          data: { invoiceStatus: "PAID", paidDate: existing.dueDate ?? existing.date },
+        });
+        console.log(`2026-exworks: ${inv.invoiceNumber} already in the ledger — marked PAID (settled net of chargebacks).`);
+      } else {
+        console.log(`2026-exworks: ${inv.invoiceNumber} already in the ledger — skipping.`);
+      }
       continue;
     }
 
@@ -108,8 +126,9 @@ async function main() {
         dueDate: due,
         status: "CONFIRMED",
         invoiceNumber: inv.invoiceNumber,
-        invoiceStatus: "UNPAID",
-        notes: inv.notes,
+        invoiceStatus: "PAID",
+        paidDate: due, // settled net of chargebacks; exact date approximated as NET-30
+        notes: `${inv.notes} Settled by LSI net of chargebacks.`,
         lines: {
           create: inv.lines.map(([sku, cases, price]) => ({
             productId: bySku.get(sku).id,
