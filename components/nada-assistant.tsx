@@ -5,16 +5,19 @@ import { useEffect, useRef, useState } from "react";
 import { postJson } from "@/lib/upload-client";
 import { NadaOrb, type OrbLevel } from "@/components/nada-orb";
 
-type Turn = { role: "user" | "assistant"; content: string };
+type Turn = { role: "user" | "assistant"; content: string; heard?: string };
 type Mood = "idle" | "listening" | "thinking" | "speaking";
 
+type SpeechAlternative = { transcript: string };
+type SpeechResult = ArrayLike<SpeechAlternative> & { isFinal: boolean };
 type SpeechRecognitionLike = {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
+  maxAlternatives: number;
   start: () => void;
   stop: () => void;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> & { [i: number]: { isFinal: boolean } & ArrayLike<{ transcript: string }> } }) => void) | null;
+  onresult: ((e: { results: ArrayLike<SpeechResult> }) => void) | null;
   onend: (() => void) | null;
   onerror: ((e: { error?: string }) => void) | null;
 };
@@ -29,6 +32,9 @@ function getRecognizer(): SpeechRecognitionLike | null {
   r.interimResults = true;
   // keep the mic open across natural pauses; we commit on our own silence timer
   r.continuous = true;
+  // ask for runner-up guesses too: the server's repair pass often finds the
+  // real question in an alternative when the top guess mangles a brand word
+  r.maxAlternatives = 4;
   return r;
 }
 
@@ -338,16 +344,31 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     browserSpeak(say);
   };
 
-  async function send(text: string) {
+  async function send(text: string, spoken?: { voice: true; alternatives: string[] }) {
     const question = text.trim();
     if (!question || moodRef.current === "thinking") return;
     setError("");
     setInput("");
     setTurns((t) => [...t, { role: "user", content: question }]);
     setMood("thinking");
-    const r = (await postJson("/api/ask", { question, sessionId })) as { ok: boolean; answer?: string; sessionId?: string; error?: string };
+    const r = (await postJson("/api/ask", {
+      question,
+      sessionId,
+      ...(spoken ? { voice: true, alternatives: spoken.alternatives } : {}),
+    })) as { ok: boolean; answer?: string; sessionId?: string; error?: string; question?: string; heard?: string };
     if (r.ok && r.answer) {
       if (r.sessionId) setSessionId(r.sessionId);
+      // she repaired a mishearing — show what she understood, with the raw
+      // transcript kept underneath so a bad repair is obvious at a glance
+      if (r.heard && r.question && r.question !== question) {
+        setTurns((t) =>
+          t.map((turn, i) =>
+            i === t.length - 1 && turn.role === "user"
+              ? { ...turn, content: r.question!, heard: r.heard }
+              : turn
+          )
+        );
+      }
       setTurns((t) => [...t, { role: "assistant", content: r.answer! }]);
       setMood("idle");
       speak(r.answer);
@@ -371,6 +392,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     meterStop.current?.();
     recognizer.current = r;
     let finalText = "";
+    let alternatives: string[] = [];
     let silence: ReturnType<typeof setTimeout> | undefined;
     const armSilence = (ms: number) => {
       clearTimeout(silence);
@@ -379,13 +401,21 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
     r.onresult = (e) => {
       let all = "";
       let finals = "";
+      // rank 0 is the recognizer's best guess; ranks 1+ are its runner-ups,
+      // stitched into whole alternative readings for the server's repair pass
+      const ranked: string[] = [];
       for (let i = 0; i < e.results.length; i++) {
-        const seg = e.results[i][0].transcript;
+        const res = e.results[i];
+        const seg = res[0].transcript;
         all += seg;
-        if (e.results[i].isFinal) finals += seg;
+        if (res.isFinal) finals += seg;
+        for (let rank = 1; rank < Math.min(res.length, 4); rank++) {
+          ranked[rank] = (ranked[rank] ?? "") + (res[rank]?.transcript ?? seg);
+        }
       }
       setInput(all.trimStart());
       finalText = (finals || all).trim();
+      alternatives = ranked.filter((a) => a && a.trim() && a.trim() !== finalText).map((a) => a.trim());
       // the mic stays open through natural pauses; a real stop in speech commits
       armSilence(finalText ? 1700 : 2600);
     };
@@ -395,7 +425,7 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
       meterStop.current?.();
       if (finalText.trim()) {
         lastInputWasVoice.current = true;
-        send(finalText);
+        send(finalText, { voice: true, alternatives });
       }
     };
     r.onerror = (e) => {
@@ -612,6 +642,9 @@ export function NadaStage({ elevenOn = false }: { elevenOn?: boolean }) {
             <div key={i} className="whitespace-pre-wrap">
               <span className="mr-2 text-blanco/80">you&nbsp;&nbsp;❯</span>
               <span className="text-cream/60">{t.content}</span>
+              {t.heard && (
+                <div className="pl-[3.4rem] text-[11px] text-cream/25">heard: {t.heard}</div>
+              )}
             </div>
           ) : (
             <div key={i} className="whitespace-pre-wrap">
