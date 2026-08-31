@@ -151,10 +151,21 @@ export default async function Dashboard() {
             </form>
           </div>
         </div>
+        {scan?.sources && scan.sources.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
+            {scan.sources.map((s) => (
+              <span key={s.source} className={s.error ? "text-burnt" : "text-slate/60"}>
+                {s.source === "NEWS" ? "press" : s.source.toLowerCase()}
+                {s.error ? ` · unreachable (${s.error.slice(0, 60)})` : ` · ${s.found} found`}
+              </span>
+            ))}
+          </div>
+        )}
         {mentions.length === 0 ? (
           <p className="text-sm text-slate/70">
-            Nothing found yet. The platform sweeps news, Reddit, and Bluesky for De Nada mentions
-            once a day — anything new lands here.
+            Nothing found yet. The platform sweeps press, Reddit — posts and the comment threads
+            under them, across the tequila and cocktail forums — and Bluesky once a day; anything
+            new lands here.
           </p>
         ) : (
           <ul className="space-y-1.5">
