@@ -273,18 +273,65 @@ async function fetchReddit(): Promise<Found[]> {
 
   // every request failed — surface that instead of reporting a quiet internet
   if (out.length === 0 && errors.length > 0) {
-    throw new Error(`reddit: ${errors[0]}${errors.length > 1 ? ` (+${errors.length - 1} more)` : ""}`);
+    const blocked = errors.some((e) => /HTTP 40[13]/.test(e));
+    const detail = `${errors[0]}${errors.length > 1 ? ` (+${errors.length - 1} more)` : ""}`;
+    throw new Error(
+      blocked && !token
+        ? `${detail} — Reddit blocks unauthenticated traffic from servers`
+        : blocked && token
+          ? `${detail} even when signed in — check the Reddit app credentials`
+          : detail
+    );
   }
   return out;
 }
 
+/**
+ * A Bluesky session when an app password is configured, else null.
+ * Bluesky now refuses unauthenticated search from most server IPs; an app
+ * password (Settings → Privacy and Security → App Passwords on bsky.app)
+ * restores it. Cached in-process.
+ */
+let bskyCache: { jwt: string; expires: number } | null = null;
+async function blueskyToken(): Promise<string | null> {
+  const identifier = process.env.BLUESKY_IDENTIFIER;
+  const password = process.env.BLUESKY_APP_PASSWORD;
+  if (!identifier || !password) return null;
+  if (bskyCache && bskyCache.expires > Date.now()) return bskyCache.jwt;
+  const res = await fetch("https://bsky.social/xrpc/com.atproto.server.createSession", {
+    method: "POST",
+    headers: { ...UA, "Content-Type": "application/json" },
+    body: JSON.stringify({ identifier, password }),
+    signal: TIMEOUT(12_000),
+  });
+  if (!res.ok) throw new Error(`auth failed: HTTP ${res.status} — check BLUESKY_IDENTIFIER / BLUESKY_APP_PASSWORD`);
+  const j = (await res.json()) as { accessJwt?: string };
+  if (!j.accessJwt) throw new Error("auth failed: no token returned");
+  // access tokens last ~2h; refresh well inside that
+  bskyCache = { jwt: j.accessJwt, expires: Date.now() + 60 * 60 * 1000 };
+  return bskyCache.jwt;
+}
+
 async function fetchBluesky(): Promise<Found[]> {
-  const base = process.env.MENTIONS_BSKY_URL || "https://public.api.bsky.app";
+  const override = process.env.MENTIONS_BSKY_URL;
+  const jwt = override ? null : await blueskyToken();
+  const base = override || (jwt ? "https://bsky.social" : "https://public.api.bsky.app");
   const res = await fetch(
     `${base}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(`"de nada tequila"`)}&limit=25`,
-    { headers: UA, signal: TIMEOUT(12_000) }
+    {
+      headers: jwt ? { ...UA, Authorization: `Bearer ${jwt}` } : UA,
+      signal: TIMEOUT(12_000),
+    }
   );
-  if (!res.ok) throw new Error(`bluesky: HTTP ${res.status}`);
+  if (!res.ok) {
+    throw new Error(
+      res.status === 403 || res.status === 401
+        ? jwt
+          ? `HTTP ${res.status} even when signed in — the app password may be revoked`
+          : `HTTP ${res.status} — Bluesky is refusing anonymous search from this server`
+        : `HTTP ${res.status}`
+    );
+  }
   const j = (await res.json()) as {
     posts?: Array<{ uri?: string; author?: { handle?: string }; record?: { text?: string; createdAt?: string } }>;
   };
@@ -306,7 +353,24 @@ async function fetchBluesky(): Promise<Found[]> {
   return out;
 }
 
-export type SourceStat = { source: "NEWS" | "REDDIT" | "BLUESKY"; found: number; error?: string };
+export type SourceStat = {
+  source: "NEWS" | "REDDIT" | "BLUESKY";
+  found: number;
+  error?: string;
+  /** What would actually fix this source, when the fix is configuration. */
+  fix?: string;
+};
+
+/** Credentials that turn a blocked source back on, if they aren't set yet. */
+function fixFor(source: SourceStat["source"]): string | undefined {
+  if (source === "REDDIT" && !(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET)) {
+    return "Add REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET (free 'script' app at reddit.com/prefs/apps)";
+  }
+  if (source === "BLUESKY" && !(process.env.BLUESKY_IDENTIFIER && process.env.BLUESKY_APP_PASSWORD)) {
+    return "Add BLUESKY_IDENTIFIER and BLUESKY_APP_PASSWORD (App Passwords in Bluesky settings)";
+  }
+  return undefined;
+}
 export type ScanResult = {
   at: string;
   found: number;
@@ -323,11 +387,16 @@ export async function runMentionScan(): Promise<ScanResult> {
   ];
   const settled = await Promise.allSettled(jobs.map((j) => j.run()));
 
-  const sources: SourceStat[] = settled.map((s, i) => ({
-    source: jobs[i].source,
-    found: s.status === "fulfilled" ? s.value.length : 0,
-    error: s.status === "rejected" ? String(s.reason?.message ?? s.reason) : undefined,
-  }));
+  const sources: SourceStat[] = settled.map((s, i) => {
+    const source = jobs[i].source;
+    const error = s.status === "rejected" ? String(s.reason?.message ?? s.reason) : undefined;
+    return {
+      source,
+      found: s.status === "fulfilled" ? s.value.length : 0,
+      error,
+      fix: error ? fixFor(source) : undefined,
+    };
+  });
   const errors = sources.filter((s) => s.error).map((s) => `${s.source.toLowerCase()}: ${s.error}`);
   const found = settled
     .filter((s): s is PromiseFulfilledResult<Found[]> => s.status === "fulfilled")

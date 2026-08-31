@@ -152,13 +152,25 @@ export default async function Dashboard() {
           </div>
         </div>
         {scan?.sources && scan.sources.length > 0 && (
-          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
-            {scan.sources.map((s) => (
-              <span key={s.source} className={s.error ? "text-burnt" : "text-slate/60"}>
-                {s.source === "NEWS" ? "press" : s.source.toLowerCase()}
-                {s.error ? ` · unreachable (${s.error.slice(0, 60)})` : ` · ${s.found} found`}
-              </span>
-            ))}
+          <div className="mb-2 space-y-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
+              {scan.sources.map((s) => (
+                <span key={s.source} className={s.error ? "text-burnt" : "text-slate/60"}>
+                  {s.source === "NEWS" ? "press" : s.source.toLowerCase()}
+                  {s.error ? " · blocked" : ` · ${s.found} found`}
+                </span>
+              ))}
+            </div>
+            {scan.sources
+              .filter((s) => s.fix)
+              .map((s) => (
+                <div key={`fix-${s.source}`} className="text-[10px] leading-relaxed text-slate/70">
+                  <span className="font-medium">
+                    {s.source === "NEWS" ? "Press" : s.source[0] + s.source.slice(1).toLowerCase()} needs a sign-in:
+                  </span>{" "}
+                  {s.fix} in the server configuration, then scan again.
+                </div>
+              ))}
           </div>
         )}
         {mentions.length === 0 ? (
